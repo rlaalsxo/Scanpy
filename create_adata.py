@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import tempfile
 import re
 import uuid
+import tarfile
+import tempfile
 
 warnings.filterwarnings("ignore")
 
@@ -68,6 +70,12 @@ def CreateAdata(
     min_pct_ribo=5,
     perform_analysis=True
 ):
+    if parent_dir.endswith(".tar") or parent_dir.endswith(".tar.gz"):
+        temp_dir = tempfile.mkdtemp()
+        with tarfile.open(parent_dir, "r:*") as tar:
+            tar.extractall(path=temp_dir)
+        parent_dir = temp_dir  # 압축 해제된 디렉토리로 대체
+
     save_path = os.path.join(basic_save_path, "CreateAdata")
     os.makedirs(save_path, exist_ok=True)
     data_list = []
