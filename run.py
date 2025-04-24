@@ -14,28 +14,28 @@ def main():
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
-
+    save_path = args.output_dir
     print("📌 Step 1: Create Adata")
     adata = CreateAdata(
-        basic_save_path=args.output_dir,
+        basic_save_path=save_path,
         parent_dir=args.input_dir,
         output_filename=args.output_filename,
     )
 
     print("📌 Step 2: Batch Correction")
-    adata = BatchCorrection(adata, save_path=os.path.join(args.output_dir, "BatchCorrection"))
+    adata = BatchCorrection(adata, save_path=os.path.join(save_path, "BatchCorrection"))
 
     print("📌 Step 3: Cell Cycle Scoring")
-    score_cell_cycle(adata, save_path=os.path.join(args.output_dir, "CellCycle"))
+    score_cell_cycle(adata, save_path=os.path.join(save_path, "CellCycle"))
 
     print("📌 Step 4: DEG + Cell Type Prediction")
     adata = deg_analysis_with_sex_gene_filtering(
         adata,
-        save_path=os.path.join(args.output_dir, "DEG")
+        save_path=os.path.join(save_path, "DEG")
     )
 
     print("✅ All steps completed.")
-    adata.write_h5ad(os.path.join(args.output_dir, "adata_complete.h5ad"), compression="gzip")
+    adata.write_h5ad(os.path.join(save_path, "DEG",args.output_filename), compression="gzip")
 
 if __name__ == "__main__":
     main()
