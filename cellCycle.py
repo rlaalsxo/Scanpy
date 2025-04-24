@@ -2,7 +2,7 @@ import os
 import matplotlib.pyplot as plt
 import scanpy as sc
 
-def CellCycleScoring(adata, save_path):
+def score_cell_cycle(adata, save_path):
 
     os.makedirs(save_path, exist_ok=True)
 

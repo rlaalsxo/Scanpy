@@ -10,7 +10,6 @@ import tempfile
 import re
 import uuid
 import tarfile
-import tempfile
 
 warnings.filterwarnings("ignore")
 
@@ -74,7 +73,15 @@ def CreateAdata(
         temp_dir = tempfile.mkdtemp()
         with tarfile.open(parent_dir, "r:*") as tar:
             tar.extractall(path=temp_dir)
-        parent_dir = temp_dir  # 압축 해제된 디렉토리로 대체
+        inner_files = os.listdir(temp_dir)
+        for inner in inner_files:
+            inner_path = os.path.join(temp_dir, inner)
+            if tarfile.is_tarfile(inner_path):
+                extract_dir = os.path.join(temp_dir, "nested_" + os.path.splitext(inner)[0])
+                os.makedirs(extract_dir, exist_ok=True)
+                with tarfile.open(inner_path, "r:*") as inner_tar:
+                    inner_tar.extractall(path=extract_dir)
+        parent_dir = temp_dir
 
     save_path = os.path.join(basic_save_path, "CreateAdata")
     os.makedirs(save_path, exist_ok=True)
