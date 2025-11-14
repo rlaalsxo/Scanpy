@@ -1,0 +1,24 @@
+name: scanpy
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.9
+  - pip
+  - numpy=1.23.5
+  - pandas=1.4.4
+  - scipy=1.8.1
+  - matplotlib=3.5.3
+  - seaborn=0.12.2
+  - anndata=0.9.2
+  - scanpy=1.9.3
+  - python-igraph
+  - leidenalg
+  - louvain
+  - tqdm
+  - pip:
+      - bbknn==1.5.1
+      - gseapy==1.1.2
+      - scikit-learn==1.0.2
+      - pybiomart

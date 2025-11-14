@@ -1,43 +1,39 @@
+import matplotlib
+matplotlib.use("Agg")
 import os
 import matplotlib.pyplot as plt
 import scanpy as sc
 
-def score_cell_cycle(adata, save_path):
+def _load_cycle_genes(species):
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(here, "input", f"{species}_cell_cycle.txt")
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Cell cycle file not found: {path}")
+    with open(path, "r") as f:
+        genes = [x.strip() for x in f.readlines() if x.strip()]
+    return genes[:43], genes[43:]   # S, G2M 분리 규칙 유지
 
+def score_cell_cycle(adata, save_path, species="human"):
     os.makedirs(save_path, exist_ok=True)
 
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    cell_cycle_gene_path = os.path.join(script_dir, "input", "regev_lab_cell_cycle_genes.txt")
+    s_genes, g2m_genes = _load_cycle_genes(species)
+    s_genes = [g for g in s_genes if g in adata.var_names]
+    g2m_genes = [g for g in g2m_genes if g in adata.var_names]
 
-    with open(cell_cycle_gene_path, 'r') as f:
-        cell_cycle_genes = [line.strip() for line in f.readlines()]
+    print(f"S genes used: {len(s_genes)}")
+    print(f"G2M genes used: {len(g2m_genes)}")
 
-    s_genes = cell_cycle_genes[:43]
-    g2m_genes = cell_cycle_genes[43:]
-
-    # 존재하는 유전자만 필터링
-    s_genes_filtered = [gene for gene in s_genes if gene in adata.var_names]
-    g2m_genes_filtered = [gene for gene in g2m_genes if gene in adata.var_names]
-
-    print(f"S genes used: {len(s_genes_filtered)} / {len(s_genes)}")
-    print(f"G2M genes used: {len(g2m_genes_filtered)} / {len(g2m_genes)}")
-
-    # 정규화된 데이터로 스케일링
     sc.pp.scale(adata, max_value=10)
+    sc.tl.score_genes_cell_cycle(adata, s_genes=s_genes, g2m_genes=g2m_genes)
 
-    # 세포 주기 점수 계산
-    sc.tl.score_genes_cell_cycle(adata, s_genes=s_genes_filtered, g2m_genes=g2m_genes_filtered)
-
-    # 바이올린 플롯 저장
     sc.pl.violin(adata, ["S_score", "G2M_score"], jitter=0.4, groupby="sample", rotation=60, show=False)
     plt.tight_layout()
-    plt.savefig(os.path.join(save_path, "violin_cell_cycle.png"), dpi=300, bbox_inches="tight")
+    plt.savefig(os.path.join(save_path, "violin_cell_cycle.png"), dpi=300)
     plt.close()
 
-    # 산점도 플롯 저장
     sc.pl.scatter(adata, x="S_score", y="G2M_score", color="phase", show=False)
     plt.tight_layout()
-    plt.savefig(os.path.join(save_path, "scatter_cell_cycle.png"), dpi=300, bbox_inches="tight")
+    plt.savefig(os.path.join(save_path, "scatter_cell_cycle.png"), dpi=300)
     plt.close()
 
     return adata
