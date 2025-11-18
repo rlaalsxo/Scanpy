@@ -155,6 +155,20 @@ def CreateAdata(basic_save_path, parent_dir, sample_names=None,
 
     sc.pp.filter_genes(adata, min_cells=3)
 
+    ad_pre = adata.copy()
+    sc.pp.normalize_total(ad_pre)
+    sc.pp.log1p(ad_pre)
+    sc.pp.highly_variable_genes(ad_pre, n_top_genes=2000, batch_key="sample")
+    sc.tl.pca(ad_pre)
+    sc.pp.neighbors(ad_pre, n_neighbors=10, n_pcs=40)
+    sc.tl.umap(ad_pre)
+
+    plt.figure()
+    sc.pl.umap(ad_pre, color="sample", show=False)
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_path, "umap_before_doublet.png"), dpi=300)
+    plt.close()
+
     dbl_score = pd.Series(index=adata.obs_names, dtype=float)
     dbl_pred = pd.Series(index=adata.obs_names, dtype=bool)
     for s in adata.obs["sample"].unique():
