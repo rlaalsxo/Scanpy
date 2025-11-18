@@ -54,9 +54,9 @@ def main():
     print("✅ All steps completed.")
     # 저장 경로 설정 (DEG 실행 여부에 따라)
     final_dir = os.path.join(save_path, "DEG") if args.run_4 else save_path
-    os.makedirs(final_dir, exist_ok=True)
+    os.makedirs(save_path, exist_ok=True)
 
-    adata.write_h5ad( os.path.join(final_dir, args.output_filename), compression="gzip" )
+    adata.write_h5ad( os.path.join(save_path, args.output_filename), compression="gzip" )
 
 if __name__ == "__main__":
     main()

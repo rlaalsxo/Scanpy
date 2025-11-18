@@ -13,6 +13,22 @@ def _gene_prefix(species):
         return {"mt": "mt-", "ribo": ("Rps", "Rpl"), "malat": "Malat1", "hb": "^Hb[^(p|e|s)]"}
     raise ValueError(f"Invalid species: {species}")
 
+def _qc_thresholds(species):
+    """
+    species별 QC threshold preset을 반환합니다.
+    CreateAdata 인자로 직접 값이 들어오면 그 값이 preset을 덮어씁니다.
+    """
+    presets = {
+        # 현재는 기존 기본값(200 / 20 / 5)과 동일하게 설정해 두었습니다.
+        # 필요에 따라 species별로 값만 수정하면 됩니다.
+        "human": {"min_genes": 200, "max_pct_mt": 20, "min_pct_ribo": 5},
+        "mouse": {"min_genes": 200, "max_pct_mt": 20, "min_pct_ribo": 5},
+    }
+    try:
+        return presets[species]
+    except KeyError:
+        raise ValueError(f"Invalid species for QC presets: {species}")
+
 def fix_features_file(data_dir):
     path = os.path.join(data_dir, "features.tsv.gz")
     if not os.path.exists(path): return
@@ -51,8 +67,23 @@ def standardize_filenames(data_dir):
             shutil.copy(src, mtx if cands[0].endswith(".gz") else os.path.join(data_dir, "matrix.mtx"))
 
 def CreateAdata(basic_save_path, parent_dir, sample_names=None,
-                obs_name_style="folder_barcode", min_genes=200, max_pct_mt=20,
-                min_pct_ribo=5, perform_analysis=True, species="human"):
+                obs_name_style="folder_barcode", min_genes=None, max_pct_mt=None,
+                min_pct_ribo=None, perform_analysis=True, species="human"):
+
+    # 1) species별 QC preset 불러오기
+    qc = _qc_thresholds(species)
+
+    # 2) 인자가 비어 있으면 preset으로 채우기
+    if min_genes is None:
+        min_genes = qc["min_genes"]
+    if max_pct_mt is None:
+        max_pct_mt = qc["max_pct_mt"]
+    if min_pct_ribo is None:
+        min_pct_ribo = qc["min_pct_ribo"]
+
+    # (선택) 실제 사용된 threshold를 로그로 확인하고 싶으면 다음처럼 출력할 수 있습니다.
+    print(f"[CreateAdata] QC thresholds (species={species}): "
+          f"min_genes={min_genes}, max_pct_mt={max_pct_mt}, min_pct_ribo={min_pct_ribo}")
 
     if parent_dir.endswith(".tar") or parent_dir.endswith(".tar.gz"):
         tmp = tempfile.mkdtemp()
