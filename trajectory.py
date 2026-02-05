@@ -15,17 +15,25 @@ def _detect_cluster_key(adata):
     return None
 
 
-def _validate_prerequisites(adata):
-    """Trajectory 분석 필수 조건 검증"""
-    missing = []
+def _ensure_prerequisites(adata):
+    """Trajectory 분석 필수 조건 확인 및 자동 생성"""
+    # PCA 없으면 생성
     if "X_pca" not in adata.obsm:
-        missing.append("X_pca")
-    if "neighbors" not in adata.uns:
-        missing.append("neighbors")
+        print("[Trajectory] Computing PCA...")
+        sc.tl.pca(adata, svd_solver="arpack")
+
+    # neighbors 재계산 (BBKNN 호환성 - 항상 표준 neighbors 사용)
+    print("[Trajectory] Computing neighbors for PAGA compatibility...")
+    sc.pp.neighbors(adata, n_neighbors=15, n_pcs=40)
+
+    # 클러스터 키 탐지
     cluster_key = _detect_cluster_key(adata)
     if cluster_key is None:
-        missing.append("clustering (leiden/louvain)")
-    return missing, cluster_key
+        print("[Trajectory] Computing leiden clustering...")
+        sc.tl.leiden(adata, key_added="leiden")
+        cluster_key = "leiden"
+
+    return cluster_key
 
 
 def _select_root_cell(adata, root_cluster=None, root_gene=None):
@@ -75,11 +83,8 @@ def trajectory_analysis(adata, save_path, species="human",
     """
     os.makedirs(save_path, exist_ok=True)
 
-    # 1. 필수 조건 검증
-    missing, detected_key = _validate_prerequisites(adata)
-    if missing:
-        raise ValueError(f"Missing prerequisites: {missing}")
-
+    # 1. 필수 조건 확인 및 자동 생성
+    detected_key = _ensure_prerequisites(adata)
     if cluster_key is None:
         cluster_key = detected_key
     print(f"[Trajectory] cluster_key: {cluster_key}")

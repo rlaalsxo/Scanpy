@@ -10,17 +10,28 @@ import numpy as np
 from trajectory import _detect_cluster_key
 
 
-def _validate_groupby(adata, groupby):
-    """groupby 컬럼 검증 및 대체"""
+def _ensure_groupby(adata, groupby):
+    """groupby 컬럼 검증 및 자동 생성"""
+    # 요청한 groupby가 있으면 사용
     if groupby in adata.obs:
         return groupby
-    # cell_type 우선, 없으면 클러스터 키
+    # cell_type 우선
     if "cell_type" in adata.obs:
         return "cell_type"
+    # 클러스터 키 탐지
     detected = _detect_cluster_key(adata)
     if detected:
         return detected
-    raise ValueError("No valid groupby column found (cell_type, leiden, louvain, clusters)")
+    # 클러스터가 없으면 자동 생성
+    print("[CellComm] No clustering found. Computing leiden...")
+    if "X_pca" not in adata.obsm:
+        print("[CellComm] Computing PCA...")
+        sc.tl.pca(adata, svd_solver="arpack")
+    if "neighbors" not in adata.uns:
+        print("[CellComm] Computing neighbors...")
+        sc.pp.neighbors(adata, n_neighbors=15, n_pcs=40)
+    sc.tl.leiden(adata, key_added="leiden")
+    return "leiden"
 
 
 def _plot_interaction_network(interaction_counts, save_path):
@@ -96,8 +107,8 @@ def cellcell_communication(adata, save_path, species="human",
     """
     os.makedirs(save_path, exist_ok=True)
 
-    # 1. groupby 검증
-    groupby = _validate_groupby(adata, groupby)
+    # 1. groupby 확인 및 자동 생성
+    groupby = _ensure_groupby(adata, groupby)
     print(f"[CellComm] groupby: {groupby}")
 
     n_groups = adata.obs[groupby].nunique()
