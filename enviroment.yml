@@ -17,9 +17,11 @@ dependencies:
   - leidenalg
   - louvain
   - tqdm
+  - networkx
   - pip:
       - bbknn==1.5.1
       - gseapy==1.1.2
       - scikit-learn==1.0.2
       - pybiomart
       - scrublet==0.2.3
+      - squidpy>=1.2.0
