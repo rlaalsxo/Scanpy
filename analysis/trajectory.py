@@ -75,6 +75,14 @@ def trajectory_analysis(
     print("[Trajectory] Creating copy for trajectory analysis...")
     adata_traj = adata.copy()
 
+    # 기존 neighbors 정보 삭제 (BBKNN 메타데이터와의 충돌 방지)
+    if 'neighbors' in adata_traj.uns:
+        del adata_traj.uns['neighbors']
+    if 'connectivities' in adata_traj.obsp:
+        del adata_traj.obsp['connectivities']
+    if 'distances' in adata_traj.obsp:
+        del adata_traj.obsp['distances']
+
     print("[Trajectory] Computing PCA...")
     sc.tl.pca(adata_traj, n_comps=50, svd_solver="arpack")
 
