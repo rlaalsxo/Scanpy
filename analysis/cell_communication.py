@@ -208,5 +208,9 @@ def cellcell_communication(
     summary = summary.sort_values("total", ascending=False)
     summary.to_csv(os.path.join(save_path, "communication_summary.csv"))
 
+    # 6. ligrec 결과 삭제 (h5ad 저장 시 튜플 컬럼명 호환성 문제 방지)
+    if ligrec_key in adata.uns:
+        del adata.uns[ligrec_key]
+
     print(f"[CellComm] Complete. Results: {save_path}")
     return adata
