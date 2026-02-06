@@ -6,8 +6,6 @@ import scanpy as sc
 import pandas as pd
 import numpy as np
 
-from common import detect_cluster_key
-
 
 def _select_root_cell(adata, root_cluster=None, root_gene=None, cluster_key=None):
     """
@@ -33,9 +31,8 @@ def _select_root_cell(adata, root_cluster=None, root_gene=None, cluster_key=None
 
 
 def trajectory_analysis(adata, save_path, species="human",
-                        cluster_key=None, root_cluster=None,
-                        root_gene=None, paga_threshold=0.05, n_dcs=15,
-                        neighbors_key=None):
+                        root_cluster=None, root_gene=None,
+                        paga_threshold=0.05, n_dcs=15):
     """
     Trajectory 분석 (PAGA + Diffusion Pseudotime)
 
@@ -44,13 +41,10 @@ def trajectory_analysis(adata, save_path, species="human",
     adata : AnnData
     save_path : str
     species : str
-    cluster_key : str, optional (None이면 자동 탐지)
     root_cluster : str, optional (DPT 시작 클러스터)
     root_gene : str, optional (DPT 시작 마커 유전자)
     paga_threshold : float
     n_dcs : int (Diffusion Component 수)
-    neighbors_key : str, optional
-        PAGA/Diffmap에 사용할 neighbors 키 (기본: None = 기본 neighbors)
 
     Returns
     -------
@@ -58,21 +52,21 @@ def trajectory_analysis(adata, save_path, species="human",
     """
     os.makedirs(save_path, exist_ok=True)
 
-    # 1. 클러스터 키 확인 (생성하지 않음 - run.py에서 준비)
-    if cluster_key is None:
-        cluster_key = detect_cluster_key(adata)
-        if cluster_key is None:
-            raise ValueError("No cluster key found. Run clustering first (e.g., BatchCorrection).")
+    # 1. Neighbors & 클러스터링 계산 (trajectory 전용)
+    print("[Trajectory] Computing neighbors...")
+    sc.pp.neighbors(adata, n_neighbors=15, n_pcs=40, key_added="neighbors_traj")
+
+    cluster_key = "leiden_traj"
+    print("[Trajectory] Computing leiden clustering...")
+    sc.tl.leiden(adata, key_added=cluster_key, neighbors_key="neighbors_traj")
 
     print(f"[Trajectory] cluster_key: {cluster_key}")
-    if neighbors_key:
-        print(f"[Trajectory] neighbors_key: {neighbors_key}")
 
     n_clusters = adata.obs[cluster_key].nunique()
 
     # 2. PAGA 분석
     print("[Trajectory] Running PAGA...")
-    sc.tl.paga(adata, groups=cluster_key, neighbors_key=neighbors_key)
+    sc.tl.paga(adata, groups=cluster_key, neighbors_key="neighbors_traj")
 
     fig, ax = plt.subplots(figsize=(8, 8))
     sc.pl.paga(adata, threshold=paga_threshold, show=False, ax=ax,
@@ -82,7 +76,7 @@ def trajectory_analysis(adata, save_path, species="human",
     plt.close(fig)
 
     # PAGA-initialized UMAP
-    sc.tl.umap(adata, init_pos="paga", neighbors_key=neighbors_key)
+    sc.tl.umap(adata, init_pos="paga", neighbors_key="neighbors_traj")
 
     # PAGA + UMAP 오버레이
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
@@ -96,7 +90,7 @@ def trajectory_analysis(adata, save_path, species="human",
 
     # 3. Diffusion Map
     print("[Trajectory] Computing diffusion map...")
-    sc.tl.diffmap(adata, n_comps=n_dcs, neighbors_key=neighbors_key)
+    sc.tl.diffmap(adata, n_comps=n_dcs, neighbors_key="neighbors_traj")
 
     # Diffusion Components 시각화
     fig, axes = plt.subplots(2, 2, figsize=(12, 12))
@@ -115,7 +109,7 @@ def trajectory_analysis(adata, save_path, species="human",
     adata.uns["iroot"] = root_idx
     print(f"[Trajectory] Root cell: {root_idx} (cluster: {adata.obs[cluster_key].iloc[root_idx]})")
 
-    sc.tl.dpt(adata, n_dcs=n_dcs, neighbors_key=neighbors_key)
+    sc.tl.dpt(adata, n_dcs=n_dcs, neighbors_key="neighbors_traj")
 
     # 5. 시각화
     # Pseudotime UMAP

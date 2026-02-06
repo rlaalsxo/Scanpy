@@ -6,7 +6,7 @@ from cellCycle import score_cell_cycle
 from DEG import deg_analysis_with_sex_gene_filtering
 from trajectory import trajectory_analysis
 from cellCommunication import cellcell_communication
-from common import ensure_neighbors, ensure_umap, detect_cluster_key
+from common import ensure_umap, detect_cluster_key
 
 
 def main():
@@ -49,13 +49,6 @@ def main():
     print("Step 2: Batch Correction")
     adata = BatchCorrection(adata, save_path=os.path.join(save_path, "BatchCorrection"))
 
-    # =========================================================================
-    # 전처리 준비 (필요한 경우에만)
-    # =========================================================================
-    # Step 5용 PAGA neighbors 준비 (별도 키로 저장, BBKNN neighbors 유지)
-    if args.run_5:
-        print("Preparing neighbors for Trajectory analysis...")
-        ensure_neighbors(adata, key_added="neighbors_paga")
 
     # =========================================================================
     # Step 3: Cell Cycle (선택 실행)
@@ -87,7 +80,6 @@ def main():
             species=args.species,
             root_cluster=args.root_cluster,
             root_gene=args.root_gene,
-            neighbors_key="neighbors_paga",  # PAGA용 neighbors 사용
         )
     else:
         print("Step 5 skipped")
