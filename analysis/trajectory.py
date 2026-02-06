@@ -126,7 +126,7 @@ def trajectory_analysis(
     for i, ax in enumerate(axes.flatten()):
         if i < min(4, n_dcs - 1):
             sc.pl.embedding(adata_traj, basis="diffmap", color=cluster_key,
-                            components=[1, i + 2], ax=ax, show=False,
+                            components=f"1,{i + 2}", ax=ax, show=False,
                             title=f"DC1 vs DC{i + 2}")
     save_figure(fig, save_path, "diffusion_components.png")
 
