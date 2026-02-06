@@ -113,7 +113,7 @@ def cellcell_communication(
 
     # 2. Ligand-Receptor 분석
     print(f"[CellComm] Running ligrec analysis (n_perms={n_perms})...")
-    sq.gr.ligrec(adata, cluster_key=groupby, n_perms=n_perms, threshold=0.01, copy=False)
+    sq.gr.ligrec(adata, cluster_key=groupby, n_perms=n_perms, threshold=0.01, copy=False, use_raw=False)
 
     ligrec_key = f"{groupby}_ligrec"
     if ligrec_key not in adata.uns:

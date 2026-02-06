@@ -10,7 +10,7 @@ import scanpy as sc
 import matplotlib.pyplot as plt
 
 from config.defaults import TRAJECTORY, NEIGHBORS
-from core.neighbors import compute_neighbors, compute_clustering
+from core.neighbors import compute_pca, compute_neighbors, compute_clustering
 from plotting.utils import save_figure
 
 
@@ -71,9 +71,12 @@ def trajectory_analysis(
     if n_dcs is None:
         n_dcs = TRAJECTORY["n_dcs"]
 
-    # 1. Trajectory 전용 neighbors & clustering
+    # 1. Trajectory 전용 PCA, neighbors & clustering
+    print("[Trajectory] Recomputing PCA for trajectory...")
+    compute_pca(adata)
+
     print("[Trajectory] Computing neighbors...")
-    compute_neighbors(adata, n_neighbors=NEIGHBORS["n_neighbors"], n_pcs=NEIGHBORS["n_pcs"], key_added="neighbors_traj")
+    compute_neighbors(adata, n_neighbors=NEIGHBORS["n_neighbors"], n_pcs=NEIGHBORS["n_pcs"], key_added="neighbors_traj", use_rep="X_pca")
 
     cluster_key = "leiden_traj"
     print("[Trajectory] Computing clustering...")

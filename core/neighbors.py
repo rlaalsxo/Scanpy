@@ -31,7 +31,7 @@ def compute_neighbors(
     n_neighbors: int = None,
     n_pcs: int = None,
     key_added: str = None,
-    use_rep: str = None,
+    use_rep: str = "X_pca",
 ):
     """
     Neighbors 계산
@@ -43,7 +43,7 @@ def compute_neighbors(
     n_pcs : int, optional
     key_added : str, optional
         저장할 키 (None이면 기본 neighbors)
-    use_rep : str, optional
+    use_rep : str
         사용할 representation (기본: X_pca)
     """
     if n_neighbors is None:
@@ -51,14 +51,18 @@ def compute_neighbors(
     if n_pcs is None:
         n_pcs = NEIGHBORS["n_pcs"]
 
+    # PCA 확인 및 계산
+    if use_rep == "X_pca" and "X_pca" not in adata.obsm:
+        print("[Core] X_pca not found, computing PCA...")
+        compute_pca(adata)
+
     kwargs = {
         "n_neighbors": n_neighbors,
         "n_pcs": n_pcs,
+        "use_rep": use_rep,
     }
     if key_added:
         kwargs["key_added"] = key_added
-    if use_rep:
-        kwargs["use_rep"] = use_rep
 
     sc.pp.neighbors(adata, **kwargs)
 
