@@ -104,18 +104,23 @@ def trajectory_analysis(
     print(f"[DEBUG] connectivities nnz: {adata_traj.obsp['connectivities'].nnz}")
     sc.tl.paga(adata_traj, groups=cluster_key)
 
-    fig, ax = plt.subplots(figsize=(8, 8))
-    sc.pl.paga(adata_traj, threshold=paga_threshold, show=False, ax=ax, fontsize=10, node_size_scale=1.5)
-    save_figure(fig, save_path, "paga_graph.png")
-
     # PAGA-initialized UMAP
     sc.tl.umap(adata_traj, init_pos="paga")
 
-    # PAGA + UMAP 오버레이
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-    sc.pl.paga(adata_traj, threshold=paga_threshold, show=False, ax=axes[0], fontsize=10, node_size_scale=1.5, title="PAGA Graph")
-    sc.pl.umap(adata_traj, color=cluster_key, show=False, ax=axes[1], title="PAGA-initialized UMAP")
-    save_figure(fig, save_path, "paga_umap_overlay.png")
+    # 클러스터별 UMAP 중심 좌표 계산
+    cluster_pos = {}
+    for cluster in adata_traj.obs[cluster_key].unique():
+        mask = adata_traj.obs[cluster_key] == cluster
+        cluster_pos[cluster] = adata_traj.obsm["X_umap"][mask].mean(axis=0)
+    adata_traj.uns["paga"]["pos"] = np.array([cluster_pos[c] for c in sorted(cluster_pos.keys(), key=lambda x: int(x))])
+
+    # PAGA on UMAP (오버레이)
+    fig, ax = plt.subplots(figsize=(10, 10))
+    sc.pl.umap(adata_traj, color=cluster_key, show=False, ax=ax, alpha=0.5, legend_loc="on data", legend_fontsize=8)
+    sc.pl.paga(adata_traj, threshold=paga_threshold, show=False, ax=ax, fontsize=10,
+               node_size_scale=1.5, edge_width_scale=0.5, frameon=False)
+    ax.set_title("PAGA on UMAP")
+    save_figure(fig, save_path, "paga_on_umap.png")
 
     # 3. Diffusion Map
     print("[Trajectory] Computing diffusion map...")
