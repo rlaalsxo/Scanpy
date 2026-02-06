@@ -1,37 +1,47 @@
+"""
+scRNA-seq 분석 파이프라인
+
+메인 실행 스크립트
+"""
 import os
 import argparse
-from create_adata import CreateAdata
-from batchCorrection import BatchCorrection
-from cellCycle import score_cell_cycle
-from DEG import deg_analysis_with_sex_gene_filtering
-from trajectory import trajectory_analysis
-from cellCommunication import cellcell_communication
-from common import ensure_umap, detect_cluster_key
+
+from analysis import (
+    create_adata,
+    batch_correction,
+    score_cell_cycle,
+    deg_analysis,
+    trajectory_analysis,
+    cellcell_communication,
+)
+from core.neighbors import ensure_umap, detect_cluster_key
 
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="scRNA-seq Analysis Pipeline")
+
+    # 필수 인자
     parser.add_argument("--input_dir", required=True, help="입력 디렉토리")
     parser.add_argument("--output_dir", required=True, help="결과 저장 디렉토리")
+    parser.add_argument("--species", required=True, choices=["human", "mouse"], help="종 선택")
+
+    # 선택 인자
     parser.add_argument("--output_filename", default="adata_final.h5ad", help="최종 저장 파일 이름")
-    # 종 / 조직 정보
-    parser.add_argument("--species", required=True, choices=["human", "mouse"],
-                        help="종 선택 (human 또는 mouse)")
+
     # 선택 실행 옵션
     parser.add_argument("--run_3", action="store_true", help="Cell Cycle 단계 실행")
     parser.add_argument("--run_4", action="store_true", help="DEG 분석 실행")
     parser.add_argument("--run_5", action="store_true", help="Trajectory 분석 실행")
     parser.add_argument("--run_6", action="store_true", help="Cell-Cell Communication 분석 실행")
+
     # Trajectory 옵션
-    parser.add_argument("--root_cluster", type=str, default=None,
-                        help="Trajectory 시작점 클러스터 ID")
-    parser.add_argument("--root_gene", type=str, default=None,
-                        help="Trajectory 시작점 마커 유전자")
+    parser.add_argument("--root_cluster", type=str, default=None, help="Trajectory 시작점 클러스터 ID")
+    parser.add_argument("--root_gene", type=str, default=None, help="Trajectory 시작점 마커 유전자")
+
     # Cell Communication 옵션
-    parser.add_argument("--n_perms", type=int, default=1000,
-                        help="Cell communication permutation 수")
-    parser.add_argument("--pvalue_threshold", type=float, default=0.05,
-                        help="유의성 임계값")
+    parser.add_argument("--n_perms", type=int, default=None, help="Cell communication permutation 수")
+    parser.add_argument("--pvalue_threshold", type=float, default=None, help="유의성 임계값")
+
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
     save_path = args.output_dir
@@ -39,23 +49,38 @@ def main():
     # =========================================================================
     # Step 1: Create Adata (전처리 - 항상 실행)
     # =========================================================================
+    print("=" * 60)
     print("Step 1: Create Adata")
-    adata = CreateAdata(basic_save_path=save_path, parent_dir=args.input_dir, species=args.species)
+    print("=" * 60)
+    adata = create_adata(
+        parent_dir=args.input_dir,
+        save_path=save_path,
+        species=args.species,
+    )
 
     # =========================================================================
     # Step 2: Batch Correction (항상 실행)
-    # - BBKNN neighbors + leiden + UMAP 생성
     # =========================================================================
+    print("=" * 60)
     print("Step 2: Batch Correction")
-    adata = BatchCorrection(adata, save_path=os.path.join(save_path, "BatchCorrection"))
-
+    print("=" * 60)
+    adata = batch_correction(
+        adata,
+        save_path=os.path.join(save_path, "BatchCorrection"),
+    )
 
     # =========================================================================
     # Step 3: Cell Cycle (선택 실행)
     # =========================================================================
     if args.run_3:
+        print("=" * 60)
         print("Step 3: Cell Cycle Scoring")
-        adata = score_cell_cycle(adata, save_path=os.path.join(save_path, "CellCycle"), species=args.species)
+        print("=" * 60)
+        adata = score_cell_cycle(
+            adata,
+            save_path=os.path.join(save_path, "CellCycle"),
+            species=args.species,
+        )
     else:
         print("Step 3 skipped")
 
@@ -63,9 +88,15 @@ def main():
     # Step 4: DEG + Cell Type Prediction (선택 실행)
     # =========================================================================
     if args.run_4:
+        print("=" * 60)
         print("Step 4: DEG + Cell Type Prediction")
-        ensure_umap(adata)  # 이미 있으면 스킵
-        adata = deg_analysis_with_sex_gene_filtering(adata, save_path=os.path.join(save_path, "DEG"), species=args.species)
+        print("=" * 60)
+        ensure_umap(adata)
+        adata = deg_analysis(
+            adata,
+            save_path=os.path.join(save_path, "DEG"),
+            species=args.species,
+        )
     else:
         print("Step 4 skipped")
 
@@ -73,7 +104,9 @@ def main():
     # Step 5: Trajectory Analysis (선택 실행)
     # =========================================================================
     if args.run_5:
+        print("=" * 60)
         print("Step 5: Trajectory Analysis")
+        print("=" * 60)
         adata = trajectory_analysis(
             adata,
             save_path=os.path.join(save_path, "Trajectory"),
@@ -88,8 +121,9 @@ def main():
     # Step 6: Cell-Cell Communication (선택 실행)
     # =========================================================================
     if args.run_6:
+        print("=" * 60)
         print("Step 6: Cell-Cell Communication")
-        # groupby 결정: cell_type (Step 4 실행 시) > leiden
+        print("=" * 60)
         groupby = "cell_type" if "cell_type" in adata.obs else detect_cluster_key(adata)
         adata = cellcell_communication(
             adata,
@@ -105,8 +139,9 @@ def main():
     # =========================================================================
     # 최종 저장
     # =========================================================================
+    print("=" * 60)
     print("All steps completed.")
-    os.makedirs(save_path, exist_ok=True)
+    print("=" * 60)
     adata.write_h5ad(os.path.join(save_path, args.output_filename), compression="gzip")
     print(f"Saved: {os.path.join(save_path, args.output_filename)}")
 

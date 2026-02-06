@@ -1,15 +1,23 @@
-import matplotlib
-matplotlib.use("Agg")
+"""
+Trajectory 분석
+
+PAGA + Diffusion Pseudotime
+"""
 import os
-import matplotlib.pyplot as plt
-import scanpy as sc
-import pandas as pd
+
 import numpy as np
+import scanpy as sc
+import matplotlib.pyplot as plt
+
+from config.defaults import TRAJECTORY, NEIGHBORS
+from core.neighbors import compute_neighbors, compute_clustering
+from plotting.utils import save_figure
 
 
 def _select_root_cell(adata, root_cluster=None, root_gene=None, cluster_key=None):
     """
     DPT root cell 선택
+
     - root_cluster: 해당 클러스터에서 DC1이 최소인 세포
     - root_gene: 해당 유전자 발현이 최대인 세포
     - 둘 다 없으면: DC1이 최소인 세포 (자동)
@@ -30,9 +38,15 @@ def _select_root_cell(adata, root_cluster=None, root_gene=None, cluster_key=None
     return int(np.argmin(adata.obsm["X_diffmap"][:, 0]))
 
 
-def trajectory_analysis(adata, save_path, species="human",
-                        root_cluster=None, root_gene=None,
-                        paga_threshold=0.05, n_dcs=15):
+def trajectory_analysis(
+    adata,
+    save_path: str,
+    species: str = "human",
+    root_cluster: str = None,
+    root_gene: str = None,
+    paga_threshold: float = None,
+    n_dcs: int = None,
+) -> sc.AnnData:
     """
     Trajectory 분석 (PAGA + Diffusion Pseudotime)
 
@@ -41,27 +55,31 @@ def trajectory_analysis(adata, save_path, species="human",
     adata : AnnData
     save_path : str
     species : str
-    root_cluster : str, optional (DPT 시작 클러스터)
-    root_gene : str, optional (DPT 시작 마커 유전자)
-    paga_threshold : float
-    n_dcs : int (Diffusion Component 수)
+    root_cluster : str, optional
+    root_gene : str, optional
+    paga_threshold : float, optional
+    n_dcs : int, optional
 
     Returns
     -------
-    AnnData with trajectory results
+    AnnData
     """
     os.makedirs(save_path, exist_ok=True)
 
-    # 1. Neighbors & 클러스터링 계산 (trajectory 전용)
+    if paga_threshold is None:
+        paga_threshold = TRAJECTORY["paga_threshold"]
+    if n_dcs is None:
+        n_dcs = TRAJECTORY["n_dcs"]
+
+    # 1. Trajectory 전용 neighbors & clustering
     print("[Trajectory] Computing neighbors...")
-    sc.pp.neighbors(adata, n_neighbors=15, n_pcs=40, key_added="neighbors_traj")
+    compute_neighbors(adata, n_neighbors=NEIGHBORS["n_neighbors"], n_pcs=NEIGHBORS["n_pcs"], key_added="neighbors_traj")
 
     cluster_key = "leiden_traj"
-    print("[Trajectory] Computing leiden clustering...")
-    sc.tl.leiden(adata, key_added=cluster_key, neighbors_key="neighbors_traj")
+    print("[Trajectory] Computing clustering...")
+    compute_clustering(adata, method="leiden", neighbors_key="neighbors_traj", key_added=cluster_key)
 
     print(f"[Trajectory] cluster_key: {cluster_key}")
-
     n_clusters = adata.obs[cluster_key].nunique()
 
     # 2. PAGA 분석
@@ -69,24 +87,17 @@ def trajectory_analysis(adata, save_path, species="human",
     sc.tl.paga(adata, groups=cluster_key, neighbors_key="neighbors_traj")
 
     fig, ax = plt.subplots(figsize=(8, 8))
-    sc.pl.paga(adata, threshold=paga_threshold, show=False, ax=ax,
-               fontsize=10, node_size_scale=1.5)
-    fig.tight_layout()
-    fig.savefig(os.path.join(save_path, "paga_graph.png"), dpi=300, bbox_inches="tight")
-    plt.close(fig)
+    sc.pl.paga(adata, threshold=paga_threshold, show=False, ax=ax, fontsize=10, node_size_scale=1.5)
+    save_figure(fig, save_path, "paga_graph.png")
 
     # PAGA-initialized UMAP
     sc.tl.umap(adata, init_pos="paga", neighbors_key="neighbors_traj")
 
     # PAGA + UMAP 오버레이
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-    sc.pl.paga(adata, threshold=paga_threshold, show=False, ax=axes[0],
-               fontsize=10, node_size_scale=1.5, title="PAGA Graph")
-    sc.pl.umap(adata, color=cluster_key, show=False, ax=axes[1],
-               title="PAGA-initialized UMAP")
-    fig.tight_layout()
-    fig.savefig(os.path.join(save_path, "paga_umap_overlay.png"), dpi=300, bbox_inches="tight")
-    plt.close(fig)
+    sc.pl.paga(adata, threshold=paga_threshold, show=False, ax=axes[0], fontsize=10, node_size_scale=1.5, title="PAGA Graph")
+    sc.pl.umap(adata, color=cluster_key, show=False, ax=axes[1], title="PAGA-initialized UMAP")
+    save_figure(fig, save_path, "paga_umap_overlay.png")
 
     # 3. Diffusion Map
     print("[Trajectory] Computing diffusion map...")
@@ -99,9 +110,7 @@ def trajectory_analysis(adata, save_path, species="human",
             sc.pl.embedding(adata, basis="diffmap", color=cluster_key,
                             components=[1, i + 2], ax=ax, show=False,
                             title=f"DC1 vs DC{i + 2}")
-    fig.tight_layout()
-    fig.savefig(os.path.join(save_path, "diffusion_components.png"), dpi=300, bbox_inches="tight")
-    plt.close(fig)
+    save_figure(fig, save_path, "diffusion_components.png")
 
     # 4. Diffusion Pseudotime
     print("[Trajectory] Computing diffusion pseudotime...")
@@ -114,32 +123,23 @@ def trajectory_analysis(adata, save_path, species="human",
     # 5. 시각화
     # Pseudotime UMAP
     fig, ax = plt.subplots(figsize=(10, 8))
-    sc.pl.umap(adata, color="dpt_pseudotime", ax=ax, show=False,
-               color_map="viridis", title="Diffusion Pseudotime")
-    fig.tight_layout()
-    fig.savefig(os.path.join(save_path, "diffusion_pseudotime_umap.png"), dpi=300, bbox_inches="tight")
-    plt.close(fig)
+    sc.pl.umap(adata, color="dpt_pseudotime", ax=ax, show=False, color_map="viridis", title="Diffusion Pseudotime")
+    save_figure(fig, save_path, "diffusion_pseudotime_umap.png")
 
     # 클러스터별 pseudotime 분포
     fig_width = max(8, n_clusters * 0.8)
     fig, ax = plt.subplots(figsize=(fig_width, 6))
-    sc.pl.violin(adata, keys="dpt_pseudotime", groupby=cluster_key,
-                 ax=ax, show=False, rotation=45)
+    sc.pl.violin(adata, keys="dpt_pseudotime", groupby=cluster_key, ax=ax, show=False, rotation=45)
     ax.set_title("Pseudotime Distribution by Cluster")
-    fig.tight_layout()
-    fig.savefig(os.path.join(save_path, "pseudotime_by_cluster.png"), dpi=300, bbox_inches="tight")
-    plt.close(fig)
+    save_figure(fig, save_path, "pseudotime_by_cluster.png")
 
     # Root cell 위치 표시
     fig, ax = plt.subplots(figsize=(10, 8))
     sc.pl.umap(adata, color=cluster_key, ax=ax, show=False)
     root_coords = adata.obsm["X_umap"][root_idx]
-    ax.scatter(root_coords[0], root_coords[1], c="red", s=200,
-               marker="*", edgecolors="black", linewidths=2, zorder=10)
+    ax.scatter(root_coords[0], root_coords[1], c="red", s=200, marker="*", edgecolors="black", linewidths=2, zorder=10)
     ax.set_title(f"Root Cell (Cluster: {adata.obs[cluster_key].iloc[root_idx]})")
-    fig.tight_layout()
-    fig.savefig(os.path.join(save_path, "root_cell_location.png"), dpi=300, bbox_inches="tight")
-    plt.close(fig)
+    save_figure(fig, save_path, "root_cell_location.png")
 
     # 6. 요약 테이블
     summary = adata.obs.groupby(cluster_key)["dpt_pseudotime"].agg(["mean", "std", "min", "max"])

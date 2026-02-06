@@ -1,16 +1,22 @@
-import matplotlib
-matplotlib.use("Agg")
+"""
+Cell-Cell Communication 분석
+
+Squidpy 기반 Ligand-Receptor 분석
+"""
 import os
-import matplotlib.pyplot as plt
+
+import numpy as np
+import pandas as pd
 import scanpy as sc
 import squidpy as sq
-import pandas as pd
-import numpy as np
+import matplotlib.pyplot as plt
 
-from common import detect_cluster_key
+from config.defaults import CELL_COMMUNICATION
+from core.neighbors import detect_cluster_key
+from plotting.utils import save_figure
 
 
-def _plot_interaction_network(interaction_counts, save_path):
+def _plot_interaction_network(interaction_counts, save_path: str):
     """세포 타입 간 상호작용 네트워크 시각화"""
     import networkx as nx
 
@@ -31,7 +37,7 @@ def _plot_interaction_network(interaction_counts, save_path):
     fig, ax = plt.subplots(figsize=(12, 12))
     pos = nx.spring_layout(G, k=2, iterations=50, seed=42)
 
-    # 노드 크기: 총 상호작용 수에 비례
+    # 노드 크기
     node_sizes = []
     for node in G.nodes():
         total = 0
@@ -46,46 +52,52 @@ def _plot_interaction_network(interaction_counts, save_path):
     max_weight = max(edge_weights) if edge_weights else 1
     edge_widths = [1 + (w / max_weight) * 5 for w in edge_weights]
 
-    nx.draw_networkx_nodes(G, pos, node_size=node_sizes,
-                           node_color="lightblue", alpha=0.8, ax=ax)
+    nx.draw_networkx_nodes(G, pos, node_size=node_sizes, node_color="lightblue", alpha=0.8, ax=ax)
     nx.draw_networkx_labels(G, pos, font_size=9, ax=ax)
-    nx.draw_networkx_edges(G, pos, width=edge_widths,
-                           alpha=0.6, edge_color="gray",
-                           connectionstyle="arc3,rad=0.1",
-                           arrows=True, arrowsize=15, ax=ax)
+    nx.draw_networkx_edges(G, pos, width=edge_widths, alpha=0.6, edge_color="gray",
+                           connectionstyle="arc3,rad=0.1", arrows=True, arrowsize=15, ax=ax)
 
     ax.set_title("Cell-Cell Communication Network")
     ax.axis("off")
-    fig.tight_layout()
-    fig.savefig(os.path.join(save_path, "interaction_network.png"), dpi=300, bbox_inches="tight")
-    plt.close(fig)
+    save_figure(fig, save_path, "interaction_network.png")
 
 
-def cellcell_communication(adata, save_path, species="human",
-                           groupby=None, n_perms=1000,
-                           pvalue_threshold=0.05, top_n_interactions=50):
+def cellcell_communication(
+    adata,
+    save_path: str,
+    species: str = "human",
+    groupby: str = None,
+    n_perms: int = None,
+    pvalue_threshold: float = None,
+    top_n_interactions: int = None,
+) -> sc.AnnData:
     """
-    Cell-Cell Communication 분석 (squidpy 기반)
+    Cell-Cell Communication 분석
 
     Parameters
     ----------
     adata : AnnData
     save_path : str
     species : str
-    groupby : str
-        그룹핑할 컬럼 (cell_type, leiden 등)
-        None이면 자동 탐지 (cell_type > leiden > ...)
-    n_perms : int (permutation 수)
-    pvalue_threshold : float
-    top_n_interactions : int
+    groupby : str, optional
+    n_perms : int, optional
+    pvalue_threshold : float, optional
+    top_n_interactions : int, optional
 
     Returns
     -------
-    AnnData with communication results
+    AnnData
     """
     os.makedirs(save_path, exist_ok=True)
 
-    # 1. groupby 확인 (생성하지 않음 - run.py에서 준비)
+    if n_perms is None:
+        n_perms = CELL_COMMUNICATION["n_perms"]
+    if pvalue_threshold is None:
+        pvalue_threshold = CELL_COMMUNICATION["pvalue_threshold"]
+    if top_n_interactions is None:
+        top_n_interactions = CELL_COMMUNICATION["top_n_interactions"]
+
+    # 1. groupby 확인
     if groupby is None:
         if "cell_type" in adata.obs:
             groupby = "cell_type"
@@ -96,23 +108,16 @@ def cellcell_communication(adata, save_path, species="human",
         raise ValueError(f"No valid groupby key found. Run DEG or clustering first.")
 
     print(f"[CellComm] groupby: {groupby}")
-
     n_groups = adata.obs[groupby].nunique()
     print(f"[CellComm] Number of groups: {n_groups}")
 
     # 2. Ligand-Receptor 분석
     print(f"[CellComm] Running ligrec analysis (n_perms={n_perms})...")
-    sq.gr.ligrec(
-        adata,
-        cluster_key=groupby,
-        n_perms=n_perms,
-        threshold=0.01,
-        copy=False,
-    )
+    sq.gr.ligrec(adata, cluster_key=groupby, n_perms=n_perms, threshold=0.01, copy=False)
 
     ligrec_key = f"{groupby}_ligrec"
     if ligrec_key not in adata.uns:
-        print(f"[CellComm] ligrec results not found. Check squidpy installation.")
+        print("[CellComm] ligrec results not found.")
         return adata
 
     # 3. 유의한 상호작용 추출
@@ -152,14 +157,8 @@ def cellcell_communication(adata, save_path, species="human",
     try:
         fig_height = max(8, min(top_n_interactions * 0.3, 20))
         fig_width = max(10, n_groups * 1.5)
-        sq.pl.ligrec(
-            adata,
-            cluster_key=groupby,
-            pvalue_threshold=pvalue_threshold,
-            remove_empty_interactions=True,
-            show=False,
-            figsize=(fig_width, fig_height),
-        )
+        sq.pl.ligrec(adata, cluster_key=groupby, pvalue_threshold=pvalue_threshold,
+                     remove_empty_interactions=True, show=False, figsize=(fig_width, fig_height))
         plt.tight_layout()
         plt.savefig(os.path.join(save_path, "ligrec_dotplot.png"), dpi=300, bbox_inches="tight")
         plt.close()
@@ -181,9 +180,7 @@ def cellcell_communication(adata, save_path, species="human",
         ax.set_ylabel("Source")
         ax.set_title("Number of Significant L-R Interactions")
         plt.colorbar(im, ax=ax, label="Count")
-        fig.tight_layout()
-        fig.savefig(os.path.join(save_path, "interaction_heatmap.png"), dpi=300, bbox_inches="tight")
-        plt.close(fig)
+        save_figure(fig, save_path, "interaction_heatmap.png")
 
         # 4-3. 네트워크 그래프
         print("[CellComm] Generating network plot...")
@@ -200,9 +197,7 @@ def cellcell_communication(adata, save_path, species="human",
         ax.set_ylabel("Ligand-Receptor Pair")
         ax.set_title("Top 20 Ligand-Receptor Pairs")
         ax.invert_yaxis()
-        fig.tight_layout()
-        fig.savefig(os.path.join(save_path, "top_lr_pairs.png"), dpi=300, bbox_inches="tight")
-        plt.close(fig)
+        save_figure(fig, save_path, "top_lr_pairs.png")
 
     # 5. 요약 테이블
     summary = pd.DataFrame({
