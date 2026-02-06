@@ -7,31 +7,7 @@ import squidpy as sq
 import pandas as pd
 import numpy as np
 
-from trajectory import _detect_cluster_key
-
-
-def _ensure_groupby(adata, groupby):
-    """groupby 컬럼 검증 및 자동 생성"""
-    # 요청한 groupby가 있으면 사용
-    if groupby in adata.obs:
-        return groupby
-    # cell_type 우선
-    if "cell_type" in adata.obs:
-        return "cell_type"
-    # 클러스터 키 탐지
-    detected = _detect_cluster_key(adata)
-    if detected:
-        return detected
-    # 클러스터가 없으면 자동 생성
-    print("[CellComm] No clustering found. Computing leiden...")
-    if "X_pca" not in adata.obsm:
-        print("[CellComm] Computing PCA...")
-        sc.tl.pca(adata, svd_solver="arpack")
-    if "neighbors" not in adata.uns:
-        print("[CellComm] Computing neighbors...")
-        sc.pp.neighbors(adata, n_neighbors=15, n_pcs=40)
-    sc.tl.leiden(adata, key_added="leiden")
-    return "leiden"
+from common import detect_cluster_key
 
 
 def _plot_interaction_network(interaction_counts, save_path):
@@ -86,7 +62,7 @@ def _plot_interaction_network(interaction_counts, save_path):
 
 
 def cellcell_communication(adata, save_path, species="human",
-                           groupby="cell_type", n_perms=1000,
+                           groupby=None, n_perms=1000,
                            pvalue_threshold=0.05, top_n_interactions=50):
     """
     Cell-Cell Communication 분석 (squidpy 기반)
@@ -96,7 +72,9 @@ def cellcell_communication(adata, save_path, species="human",
     adata : AnnData
     save_path : str
     species : str
-    groupby : str (cell_type, leiden 등)
+    groupby : str
+        그룹핑할 컬럼 (cell_type, leiden 등)
+        None이면 자동 탐지 (cell_type > leiden > ...)
     n_perms : int (permutation 수)
     pvalue_threshold : float
     top_n_interactions : int
@@ -107,8 +85,16 @@ def cellcell_communication(adata, save_path, species="human",
     """
     os.makedirs(save_path, exist_ok=True)
 
-    # 1. groupby 확인 및 자동 생성
-    groupby = _ensure_groupby(adata, groupby)
+    # 1. groupby 확인 (생성하지 않음 - run.py에서 준비)
+    if groupby is None:
+        if "cell_type" in adata.obs:
+            groupby = "cell_type"
+        else:
+            groupby = detect_cluster_key(adata)
+
+    if groupby is None or groupby not in adata.obs:
+        raise ValueError(f"No valid groupby key found. Run DEG or clustering first.")
+
     print(f"[CellComm] groupby: {groupby}")
 
     n_groups = adata.obs[groupby].nunique()

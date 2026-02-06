@@ -6,37 +6,10 @@ import scanpy as sc
 import pandas as pd
 import numpy as np
 
-
-def _detect_cluster_key(adata):
-    """클러스터 키 자동 탐지 (leiden > louvain > clusters > cluster)"""
-    for cand in ["leiden", "louvain", "clusters", "cluster"]:
-        if cand in adata.obs:
-            return cand
-    return None
+from common import detect_cluster_key
 
 
-def _ensure_prerequisites(adata):
-    """Trajectory 분석 필수 조건 확인 및 자동 생성"""
-    # PCA 없으면 생성
-    if "X_pca" not in adata.obsm:
-        print("[Trajectory] Computing PCA...")
-        sc.tl.pca(adata, svd_solver="arpack")
-
-    # neighbors 재계산 (BBKNN 호환성 - 항상 표준 neighbors 사용)
-    print("[Trajectory] Computing neighbors for PAGA compatibility...")
-    sc.pp.neighbors(adata, n_neighbors=15, n_pcs=40)
-
-    # 클러스터 키 탐지
-    cluster_key = _detect_cluster_key(adata)
-    if cluster_key is None:
-        print("[Trajectory] Computing leiden clustering...")
-        sc.tl.leiden(adata, key_added="leiden")
-        cluster_key = "leiden"
-
-    return cluster_key
-
-
-def _select_root_cell(adata, root_cluster=None, root_gene=None):
+def _select_root_cell(adata, root_cluster=None, root_gene=None, cluster_key=None):
     """
     DPT root cell 선택
     - root_cluster: 해당 클러스터에서 DC1이 최소인 세포
@@ -44,7 +17,6 @@ def _select_root_cell(adata, root_cluster=None, root_gene=None):
     - 둘 다 없으면: DC1이 최소인 세포 (자동)
     """
     if root_cluster is not None:
-        cluster_key = _detect_cluster_key(adata)
         if cluster_key and root_cluster in adata.obs[cluster_key].values:
             mask = adata.obs[cluster_key] == root_cluster
             dc1 = adata.obsm["X_diffmap"][mask, 0]
@@ -62,7 +34,8 @@ def _select_root_cell(adata, root_cluster=None, root_gene=None):
 
 def trajectory_analysis(adata, save_path, species="human",
                         cluster_key=None, root_cluster=None,
-                        root_gene=None, paga_threshold=0.05, n_dcs=15):
+                        root_gene=None, paga_threshold=0.05, n_dcs=15,
+                        neighbors_key=None):
     """
     Trajectory 분석 (PAGA + Diffusion Pseudotime)
 
@@ -76,6 +49,8 @@ def trajectory_analysis(adata, save_path, species="human",
     root_gene : str, optional (DPT 시작 마커 유전자)
     paga_threshold : float
     n_dcs : int (Diffusion Component 수)
+    neighbors_key : str, optional
+        PAGA/Diffmap에 사용할 neighbors 키 (기본: None = 기본 neighbors)
 
     Returns
     -------
@@ -83,17 +58,21 @@ def trajectory_analysis(adata, save_path, species="human",
     """
     os.makedirs(save_path, exist_ok=True)
 
-    # 1. 필수 조건 확인 및 자동 생성
-    detected_key = _ensure_prerequisites(adata)
+    # 1. 클러스터 키 확인 (생성하지 않음 - run.py에서 준비)
     if cluster_key is None:
-        cluster_key = detected_key
+        cluster_key = detect_cluster_key(adata)
+        if cluster_key is None:
+            raise ValueError("No cluster key found. Run clustering first (e.g., BatchCorrection).")
+
     print(f"[Trajectory] cluster_key: {cluster_key}")
+    if neighbors_key:
+        print(f"[Trajectory] neighbors_key: {neighbors_key}")
 
     n_clusters = adata.obs[cluster_key].nunique()
 
     # 2. PAGA 분석
     print("[Trajectory] Running PAGA...")
-    sc.tl.paga(adata, groups=cluster_key)
+    sc.tl.paga(adata, groups=cluster_key, neighbors_key=neighbors_key)
 
     fig, ax = plt.subplots(figsize=(8, 8))
     sc.pl.paga(adata, threshold=paga_threshold, show=False, ax=ax,
@@ -103,7 +82,7 @@ def trajectory_analysis(adata, save_path, species="human",
     plt.close(fig)
 
     # PAGA-initialized UMAP
-    sc.tl.umap(adata, init_pos="paga")
+    sc.tl.umap(adata, init_pos="paga", neighbors_key=neighbors_key)
 
     # PAGA + UMAP 오버레이
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
@@ -117,7 +96,7 @@ def trajectory_analysis(adata, save_path, species="human",
 
     # 3. Diffusion Map
     print("[Trajectory] Computing diffusion map...")
-    sc.tl.diffmap(adata, n_comps=n_dcs)
+    sc.tl.diffmap(adata, n_comps=n_dcs, neighbors_key=neighbors_key)
 
     # Diffusion Components 시각화
     fig, axes = plt.subplots(2, 2, figsize=(12, 12))
@@ -132,11 +111,11 @@ def trajectory_analysis(adata, save_path, species="human",
 
     # 4. Diffusion Pseudotime
     print("[Trajectory] Computing diffusion pseudotime...")
-    root_idx = _select_root_cell(adata, root_cluster, root_gene)
+    root_idx = _select_root_cell(adata, root_cluster, root_gene, cluster_key)
     adata.uns["iroot"] = root_idx
     print(f"[Trajectory] Root cell: {root_idx} (cluster: {adata.obs[cluster_key].iloc[root_idx]})")
 
-    sc.tl.dpt(adata, n_dcs=n_dcs)
+    sc.tl.dpt(adata, n_dcs=n_dcs, neighbors_key=neighbors_key)
 
     # 5. 시각화
     # Pseudotime UMAP
