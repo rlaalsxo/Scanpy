@@ -111,12 +111,13 @@ def trajectory_analysis(
     # PAGA-initialized UMAP
     sc.tl.umap(adata_traj, init_pos="paga")
 
-    # 클러스터별 UMAP 중심 좌표 계산 후 pos 업데이트
-    cluster_pos = {}
-    for cluster in adata_traj.obs[cluster_key].unique():
+    # 클러스터별 UMAP 중심 좌표 계산 후 pos 업데이트 (PAGA 카테고리 순서에 맞춤)
+    categories = adata_traj.obs[cluster_key].cat.categories
+    cluster_pos = []
+    for cluster in categories:
         mask = adata_traj.obs[cluster_key] == cluster
-        cluster_pos[cluster] = adata_traj.obsm["X_umap"][mask].mean(axis=0)
-    adata_traj.uns["paga"]["pos"] = np.array([cluster_pos[c] for c in sorted(cluster_pos.keys(), key=lambda x: int(x))])
+        cluster_pos.append(adata_traj.obsm["X_umap"][mask].mean(axis=0))
+    adata_traj.uns["paga"]["pos"] = np.array(cluster_pos)
 
     # PAGA on UMAP (오버레이)
     fig, ax = plt.subplots(figsize=(10, 10))
