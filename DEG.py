@@ -141,16 +141,20 @@ def deg_analysis_with_sex_gene_filtering(
     # 1. 성염색체 유전자 제거
     # -------------------------------------------------------------
     print("Removing sex chromosome genes...")
-    org = _biomart_org(species)
-    annot = sc.queries.biomart_annotations(
-        org, ["ensembl_gene_id", "external_gene_name", "chromosome_name"]
-    ).set_index("external_gene_name")
+    try:
+        org = _biomart_org(species)
+        annot = sc.queries.biomart_annotations(
+            org, ["ensembl_gene_id", "external_gene_name", "chromosome_name"]
+        ).set_index("external_gene_name")
 
-    chrY = adata.var_names.intersection(annot.index[annot.chromosome_name == "Y"])
-    chrX = adata.var_names.intersection(annot.index[annot.chromosome_name == "X"])
-    sex_genes = chrY.union(chrX)
-    adata = adata[:, [g for g in adata.var_names if g not in sex_genes]]
-    print(f"Removed {len(sex_genes)} sex chromosome genes.")
+        chrY = adata.var_names.intersection(annot.index[annot.chromosome_name == "Y"])
+        chrX = adata.var_names.intersection(annot.index[annot.chromosome_name == "X"])
+        sex_genes = chrY.union(chrX)
+        adata = adata[:, [g for g in adata.var_names if g not in sex_genes]]
+        print(f"Removed {len(sex_genes)} sex chromosome genes.")
+    except Exception as e:
+        print(f"[Warning] BioMart server error: {e}")
+        print("[Warning] Skipping sex chromosome gene removal. Continuing analysis...")
 
     # -------------------------------------------------------------
     # 2. DEG 분석
