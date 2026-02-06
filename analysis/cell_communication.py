@@ -145,9 +145,21 @@ def cellcell_communication(
     sig_df = pd.DataFrame(interactions_list)
     if sig_df.empty:
         print("[CellComm] No significant interactions found.")
+        # 유의한 상호작용이 없어도 전체 dotplot 생성
+        print("[CellComm] Generating dotplot for all interactions...")
+        try:
+            fig_width = max(10, n_groups * 1.5)
+            sq.pl.ligrec(adata, cluster_key=groupby, pvalue_threshold=1.0,
+                         remove_empty_interactions=True, show=False, figsize=(fig_width, 12))
+            plt.tight_layout()
+            plt.savefig(os.path.join(save_path, "ligrec_dotplot_all.png"), dpi=300, bbox_inches="tight")
+            plt.close()
+        except Exception as e:
+            print(f"[CellComm] Dotplot failed: {e}")
         # ligrec 결과 삭제 (h5ad 저장 시 튜플 컬럼명 호환성 문제 방지)
         if ligrec_key in adata.uns:
             del adata.uns[ligrec_key]
+        print(f"[CellComm] Complete. Results: {save_path}")
         return adata
 
     sig_df = sig_df.sort_values("pvalue")
