@@ -90,6 +90,10 @@ def trajectory_analysis(
 
     # 2. PAGA 분석
     print("[Trajectory] Running PAGA...")
+    print(f"[DEBUG] n_clusters: {adata_traj.obs[cluster_key].nunique()}")
+    print(f"[DEBUG] cluster distribution:\n{adata_traj.obs[cluster_key].value_counts()}")
+    print(f"[DEBUG] connectivities shape: {adata_traj.obsp['connectivities'].shape}")
+    print(f"[DEBUG] connectivities nnz: {adata_traj.obsp['connectivities'].nnz}")
     sc.tl.paga(adata_traj, groups=cluster_key)
 
     fig, ax = plt.subplots(figsize=(8, 8))
