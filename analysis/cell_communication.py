@@ -145,6 +145,9 @@ def cellcell_communication(
     sig_df = pd.DataFrame(interactions_list)
     if sig_df.empty:
         print("[CellComm] No significant interactions found.")
+        # ligrec 결과 삭제 (h5ad 저장 시 튜플 컬럼명 호환성 문제 방지)
+        if ligrec_key in adata.uns:
+            del adata.uns[ligrec_key]
         return adata
 
     sig_df = sig_df.sort_values("pvalue")
