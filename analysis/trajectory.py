@@ -104,10 +104,14 @@ def trajectory_analysis(
     print(f"[DEBUG] connectivities nnz: {adata_traj.obsp['connectivities'].nnz}")
     sc.tl.paga(adata_traj, groups=cluster_key)
 
+    # PAGA plot (pos 설정을 위해 먼저 실행)
+    sc.pl.paga(adata_traj, threshold=paga_threshold, show=False)
+    plt.close()
+
     # PAGA-initialized UMAP
     sc.tl.umap(adata_traj, init_pos="paga")
 
-    # 클러스터별 UMAP 중심 좌표 계산
+    # 클러스터별 UMAP 중심 좌표 계산 후 pos 업데이트
     cluster_pos = {}
     for cluster in adata_traj.obs[cluster_key].unique():
         mask = adata_traj.obs[cluster_key] == cluster
