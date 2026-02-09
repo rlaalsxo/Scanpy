@@ -134,10 +134,10 @@ def trajectory_analysis(
                             [centers[ci][1], centers[cj][1]],
                             "k-", linewidth=lw, alpha=0.5, zorder=4)
 
-    # PAGA 노드
-    colors = {c: plt.cm.tab20(int(c) % 20) for c in categories}
-    for c in categories:
-        ax.scatter(centers[c][0], centers[c][1], s=300, c=[colors[c]],
+    # PAGA 노드 (UMAP과 동일한 색상 사용)
+    cluster_colors = adata_traj.uns.get(f"{cluster_key}_colors", [plt.cm.tab20(i % 20) for i in range(len(categories))])
+    for i, c in enumerate(categories):
+        ax.scatter(centers[c][0], centers[c][1], s=300, c=[cluster_colors[i]],
                    edgecolors="black", linewidths=1.5, zorder=5)
         ax.text(centers[c][0], centers[c][1], str(c),
                 ha="center", va="center", fontsize=8, fontweight="bold", zorder=6)
