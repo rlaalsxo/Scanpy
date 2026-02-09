@@ -111,19 +111,37 @@ def trajectory_analysis(
     # PAGA-initialized UMAP
     sc.tl.umap(adata_traj, init_pos="paga")
 
-    # 클러스터별 UMAP 중심 좌표 계산 후 pos 업데이트 (PAGA 카테고리 순서에 맞춤)
+    # PAGA on UMAP (matplotlib으로 직접 오버레이)
     categories = adata_traj.obs[cluster_key].cat.categories
-    cluster_pos = []
+    centers = {}
     for cluster in categories:
         mask = adata_traj.obs[cluster_key] == cluster
-        cluster_pos.append(adata_traj.obsm["X_umap"][mask].mean(axis=0))
-    adata_traj.uns["paga"]["pos"] = np.array(cluster_pos)
+        centers[cluster] = adata_traj.obsm["X_umap"][mask].mean(axis=0)
 
-    # PAGA on UMAP (오버레이)
     fig, ax = plt.subplots(figsize=(10, 10))
-    sc.pl.umap(adata_traj, color=cluster_key, show=False, ax=ax, alpha=0.5, legend_loc="on data", legend_fontsize=8)
-    sc.pl.paga(adata_traj, threshold=paga_threshold, show=False, ax=ax, fontsize=10,
-               node_size_scale=1.5, edge_width_scale=0.5, frameon=False)
+    sc.pl.umap(adata_traj, color=cluster_key, show=False, ax=ax, alpha=0.3, legend_loc="none")
+
+    # PAGA 엣지
+    paga_conn = adata_traj.uns["paga"]["connectivities"].toarray()
+    max_conn = paga_conn.max()
+    for i, ci in enumerate(categories):
+        for j, cj in enumerate(categories):
+            if j > i:
+                w = paga_conn[i, j]
+                if w > paga_threshold:
+                    lw = 1 + (w / max_conn) * 8
+                    ax.plot([centers[ci][0], centers[cj][0]],
+                            [centers[ci][1], centers[cj][1]],
+                            "k-", linewidth=lw, alpha=0.5, zorder=4)
+
+    # PAGA 노드
+    colors = {c: plt.cm.tab20(int(c) % 20) for c in categories}
+    for c in categories:
+        ax.scatter(centers[c][0], centers[c][1], s=300, c=[colors[c]],
+                   edgecolors="black", linewidths=1.5, zorder=5)
+        ax.text(centers[c][0], centers[c][1], str(c),
+                ha="center", va="center", fontsize=8, fontweight="bold", zorder=6)
+
     ax.set_title("PAGA on UMAP")
     save_figure(fig, save_path, "paga_on_umap.png")
 
