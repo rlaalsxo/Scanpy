@@ -110,6 +110,7 @@ def gsea_enrichment(
 
     results_df = pd.concat(all_results, ignore_index=True)
     results_df = results_df.sort_values("Adjusted P-value")
+    print(f"[GSEA] Result columns: {list(results_df.columns)}")
 
     # 3. 결과 저장
     results_df.to_csv(os.path.join(save_path, "gsea_results.csv"), index=False)
@@ -174,8 +175,13 @@ def gsea_enrichment(
         top_terms = sig_results.groupby("Term")["Adjusted P-value"].min().nsmallest(top_n_pathways).index
         dot_data = sig_results[sig_results["Term"].isin(top_terms)].copy()
 
-        # Overlap에서 gene count 추출
-        dot_data["gene_count"] = dot_data["Overlap"].apply(lambda x: int(x.split("/")[0]))
+        # gene count 추출
+        if "Overlap" in dot_data.columns:
+            dot_data["gene_count"] = dot_data["Overlap"].apply(lambda x: int(x.split("/")[0]))
+        elif "Genes" in dot_data.columns:
+            dot_data["gene_count"] = dot_data["Genes"].apply(lambda x: len(str(x).split(";")) if pd.notna(x) else 0)
+        else:
+            dot_data["gene_count"] = 5
         dot_data["neg_log_padj"] = -np.log10(dot_data["Adjusted P-value"].clip(lower=1e-300))
 
         fig, ax = plt.subplots(figsize=(max(8, len(clusters) * 0.8), max(6, len(top_terms) * 0.4)))
