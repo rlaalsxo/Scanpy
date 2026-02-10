@@ -15,6 +15,8 @@ from analysis import (
     cellcell_communication,
     gsea_enrichment,
     pseudotime_expression,
+    cell_proportion_analysis,
+    marker_feature_plot,
 )
 from core.neighbors import ensure_umap, detect_cluster_key
 
@@ -37,6 +39,8 @@ def main():
     parser.add_argument("--run_6", action="store_true", help="Cell-Cell Communication 분석 실행")
     parser.add_argument("--run_7", action="store_true", help="GSEA Enrichment 분석 실행")
     parser.add_argument("--run_8", action="store_true", help="Pseudotime Gene Expression 분석 실행")
+    parser.add_argument("--run_9", action="store_true", help="Cell Proportion 분석 실행")
+    parser.add_argument("--run_10", action="store_true", help="Marker Gene Feature Plot 실행")
 
     # Trajectory 옵션
     parser.add_argument("--root_cluster", type=str, default=None, help="Trajectory 시작점 클러스터 ID")
@@ -45,6 +49,9 @@ def main():
     # Cell Communication 옵션
     parser.add_argument("--n_perms", type=int, default=None, help="Cell communication permutation 수")
     parser.add_argument("--pvalue_threshold", type=float, default=None, help="유의성 임계값")
+
+    # Marker Feature Plot 옵션
+    parser.add_argument("--marker_genes", type=str, default=None, help="쉼표 구분 유전자 리스트 (예: CD3D,CD8A,MS4A1)")
 
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
@@ -174,6 +181,38 @@ def main():
             )
     else:
         print("Step 8 skipped")
+
+    # =========================================================================
+    # Step 9: Cell Proportion (선택 실행)
+    # =========================================================================
+    if args.run_9:
+        print("=" * 60)
+        print("Step 9: Cell Proportion Analysis")
+        print("=" * 60)
+        adata = cell_proportion_analysis(
+            adata,
+            save_path=os.path.join(save_path, "CellProportion"),
+        )
+    else:
+        print("Step 9 skipped")
+
+    # =========================================================================
+    # Step 10: Marker Gene Feature Plot (선택 실행)
+    # =========================================================================
+    if args.run_10:
+        print("=" * 60)
+        print("Step 10: Marker Gene Feature Plot")
+        print("=" * 60)
+        marker_genes = None
+        if args.marker_genes:
+            marker_genes = [g.strip() for g in args.marker_genes.split(",")]
+        adata = marker_feature_plot(
+            adata,
+            save_path=os.path.join(save_path, "MarkerFeature"),
+            genes=marker_genes,
+        )
+    else:
+        print("Step 10 skipped")
 
     # =========================================================================
     # 최종 저장

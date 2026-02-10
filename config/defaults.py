@@ -61,6 +61,17 @@ PSEUDOTIME_EXPRESSION = {
     "top_n_genes": 30,
 }
 
+# Cell Proportion 설정
+CELL_PROPORTION = {
+    "top_n_celltypes": 20,
+}
+
+# Marker Feature Plot 설정
+MARKER_FEATURE = {
+    "top_n_genes": 5,
+    "ncols": 4,
+}
+
 # 시각화 설정
 PLOTTING = {
     "dpi": 300,

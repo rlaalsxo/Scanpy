@@ -6,3 +6,5 @@ from .cell_communication import cellcell_communication
 from .create_adata import create_adata
 from .gsea_enrichment import gsea_enrichment
 from .pseudotime_expression import pseudotime_expression
+from .cell_proportion import cell_proportion_analysis
+from .marker_feature_plot import marker_feature_plot
