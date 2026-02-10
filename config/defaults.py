@@ -49,6 +49,18 @@ CELL_COMMUNICATION = {
     "top_n_interactions": 50,
 }
 
+# GSEA 설정
+GSEA = {
+    "padj_threshold": 0.05,
+    "top_n_pathways": 10,
+}
+
+# Pseudotime Gene Expression 설정
+PSEUDOTIME_EXPRESSION = {
+    "n_bins": 50,
+    "top_n_genes": 30,
+}
+
 # 시각화 설정
 PLOTTING = {
     "dpi": 300,

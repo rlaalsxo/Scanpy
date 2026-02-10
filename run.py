@@ -13,6 +13,8 @@ from analysis import (
     deg_analysis,
     trajectory_analysis,
     cellcell_communication,
+    gsea_enrichment,
+    pseudotime_expression,
 )
 from core.neighbors import ensure_umap, detect_cluster_key
 
@@ -33,6 +35,8 @@ def main():
     parser.add_argument("--run_4", action="store_true", help="DEG 분석 실행")
     parser.add_argument("--run_5", action="store_true", help="Trajectory 분석 실행")
     parser.add_argument("--run_6", action="store_true", help="Cell-Cell Communication 분석 실행")
+    parser.add_argument("--run_7", action="store_true", help="GSEA Enrichment 분석 실행")
+    parser.add_argument("--run_8", action="store_true", help="Pseudotime Gene Expression 분석 실행")
 
     # Trajectory 옵션
     parser.add_argument("--root_cluster", type=str, default=None, help="Trajectory 시작점 클러스터 ID")
@@ -135,6 +139,41 @@ def main():
         )
     else:
         print("Step 6 skipped")
+
+    # =========================================================================
+    # Step 7: GSEA Enrichment (선택 실행, Step 4 필요)
+    # =========================================================================
+    if args.run_7:
+        print("=" * 60)
+        print("Step 7: GSEA Enrichment Analysis")
+        print("=" * 60)
+        if "wilcoxon" not in adata.uns:
+            print("[GSEA] Skipped: DEG results not found. Run with --run_4 first.")
+        else:
+            adata = gsea_enrichment(
+                adata,
+                save_path=os.path.join(save_path, "GSEA"),
+                species=args.species,
+            )
+    else:
+        print("Step 7 skipped")
+
+    # =========================================================================
+    # Step 8: Pseudotime Gene Expression (선택 실행, Step 5 필요)
+    # =========================================================================
+    if args.run_8:
+        print("=" * 60)
+        print("Step 8: Pseudotime Gene Expression")
+        print("=" * 60)
+        if "dpt_pseudotime" not in adata.obs:
+            print("[PseudotimeExpr] Skipped: Pseudotime not found. Run with --run_5 first.")
+        else:
+            adata = pseudotime_expression(
+                adata,
+                save_path=os.path.join(save_path, "PseudotimeExpression"),
+            )
+    else:
+        print("Step 8 skipped")
 
     # =========================================================================
     # 최종 저장

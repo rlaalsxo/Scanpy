@@ -4,3 +4,5 @@ from .deg import deg_analysis
 from .trajectory import trajectory_analysis
 from .cell_communication import cellcell_communication
 from .create_adata import create_adata
+from .gsea_enrichment import gsea_enrichment
+from .pseudotime_expression import pseudotime_expression

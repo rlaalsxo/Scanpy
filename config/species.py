@@ -32,6 +32,13 @@ SPECIES_CONFIG = {
             "Azimuth_Cell_Types_2021",
         ],
 
+        # GSEA gene sets
+        "gsea_gene_sets": [
+            "GO_Biological_Process_2023",
+            "GO_Cellular_Component_2023",
+            "KEGG_2021_Human",
+        ],
+
         # Cell cycle genes file
         "cell_cycle_file": "human_cell_cycle.txt",
     },
@@ -58,6 +65,13 @@ SPECIES_CONFIG = {
             "Tabula_Muris",
             "Mouse_Gene_Atlas",
             "PanglaoDB_Augmented_2021",
+        ],
+
+        # GSEA gene sets
+        "gsea_gene_sets": [
+            "GO_Biological_Process_2023",
+            "GO_Cellular_Component_2023",
+            "KEGG_2019_Mouse",
         ],
 
         # Cell cycle genes file
