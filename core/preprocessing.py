@@ -10,6 +10,27 @@ from config.defaults import HVG
 from config.species import get_species_config
 
 
+def validate_species(adata, species: str):
+    config = get_species_config(species)
+    mt_count = int(adata.var_names.str.startswith(config["mt_prefix"]).sum())
+    ribo_count = int(adata.var_names.str.startswith(config["ribo_prefix"]).sum())
+
+    if mt_count == 0 and ribo_count == 0:
+        other = "human" if species == "mouse" else "mouse"
+        other_config = get_species_config(other)
+        other_mt = int(adata.var_names.str.startswith(other_config["mt_prefix"]).sum())
+        other_ribo = int(adata.var_names.str.startswith(other_config["ribo_prefix"]).sum())
+
+        if other_mt > 0 or other_ribo > 0:
+            raise ValueError(
+                f"Species is set to '{species}', but gene name patterns "
+                f"match '{other}'.\n"
+                f"  Current({species}): {mt_count} MT genes, {ribo_count} Ribo genes\n"
+                f"  Detected({other}): {other_mt} MT genes, {other_ribo} Ribo genes\n"
+                f"Please change species to '{other}'."
+            )
+
+
 def calculate_qc_metrics(adata, species: str):
     """
     QC metrics 계산 (mt, ribo, hb)
@@ -68,10 +89,28 @@ def filter_cells_qc(
 
     print(f"[QC] min_genes={min_genes}, max_pct_mt={max_pct_mt}, min_pct_ribo={min_pct_ribo}")
 
+    n_total = adata.n_obs
+
     sc.pp.filter_cells(adata, min_genes=min_genes)
+    n_after_genes = adata.n_obs
+
     sc.pp.filter_genes(adata, min_cells=3)
+
     adata = adata[adata.obs["pct_counts_mt"] < max_pct_mt, :]
+    n_after_mt = adata.n_obs
+
     adata = adata[adata.obs["pct_counts_ribo"] > min_pct_ribo, :]
+    n_after_ribo = adata.n_obs
+
+    if n_after_ribo == 0:
+        raise ValueError(
+            f"No cells remaining after QC filtering.\n"
+            f"  Total: {n_total}\n"
+            f"  After min_genes={min_genes}: {n_after_genes}\n"
+            f"  After max_pct_mt={max_pct_mt}: {n_after_mt}\n"
+            f"  After min_pct_ribo={min_pct_ribo}: {n_after_ribo}\n"
+            f"Please check if species='{species}' is correct."
+        )
 
     return adata
 

@@ -12,7 +12,7 @@ import scrublet as scr
 import matplotlib.pyplot as plt
 
 from core.io import load_10x_data, save_adata
-from core.preprocessing import calculate_qc_metrics, filter_cells_qc, remove_genes, normalize_and_hvg
+from core.preprocessing import validate_species, calculate_qc_metrics, filter_cells_qc, remove_genes, normalize_and_hvg
 from core.neighbors import compute_pca, compute_neighbors
 from plotting.utils import save_figure
 
@@ -57,7 +57,9 @@ def create_adata(
     print("[CreateAdata] Loading 10x data...")
     adata = load_10x_data(parent_dir, sample_names, obs_name_style)
 
-    # 2. QC metrics 계산
+    # 2. 종 검증 및 QC metrics 계산
+    print("[CreateAdata] Validating species...")
+    validate_species(adata, species)
     print("[CreateAdata] Calculating QC metrics...")
     calculate_qc_metrics(adata, species)
 
