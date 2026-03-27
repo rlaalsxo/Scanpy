@@ -1,7 +1,7 @@
 """
 AnnData 생성 및 전처리
 
-10x 데이터 로딩, QC, 더블렛 제거
+10x / BD Rhapsody 데이터 로딩, QC, 더블렛 제거
 """
 import os
 
@@ -11,8 +11,11 @@ import scanpy as sc
 import scrublet as scr
 import matplotlib.pyplot as plt
 
-from core.io import load_10x_data, save_adata
-from core.preprocessing import validate_species, calculate_qc_metrics, filter_cells_qc, remove_genes, normalize_and_hvg
+from core.io import load_10x_data, load_bd_data, save_adata
+from core.preprocessing import (
+    check_standard_symbols, validate_species,
+    calculate_qc_metrics, filter_cells_qc, remove_genes, normalize_and_hvg,
+)
 from core.neighbors import compute_pca, compute_neighbors
 from plotting.utils import save_figure
 
@@ -21,6 +24,7 @@ def create_adata(
     parent_dir: str,
     save_path: str,
     species: str,
+    platform: str = "10x",
     sample_names: list = None,
     obs_name_style: str = "folder_barcode",
     min_genes: int = None,
@@ -34,44 +38,51 @@ def create_adata(
     Parameters
     ----------
     parent_dir : str
-        10x 데이터 디렉토리 또는 tar 파일
+        데이터 디렉토리 또는 tar 파일
     save_path : str
-        결과 저장 경로
     species : str
         "human" 또는 "mouse"
+    platform : str
+        "10x" 또는 "bd"
     sample_names : list, optional
     obs_name_style : str
     min_genes : int, optional
     max_pct_mt : float, optional
     min_pct_ribo : float, optional
     perform_analysis : bool
-
-    Returns
-    -------
-    AnnData
     """
     result_path = os.path.join(save_path, "CreateAdata")
     os.makedirs(result_path, exist_ok=True)
 
     # 1. 데이터 로딩
-    print("[CreateAdata] Loading 10x data...")
-    adata = load_10x_data(parent_dir, sample_names, obs_name_style)
+    if platform == "bd":
+        print("[CreateAdata] Loading BD Rhapsody data...")
+        adata = load_bd_data(parent_dir, sample_names)
+    else:
+        print("[CreateAdata] Loading 10x data...")
+        adata = load_10x_data(parent_dir, sample_names, obs_name_style)
 
-    # 2. 종 검증 및 QC metrics 계산
-    print("[CreateAdata] Validating species...")
-    validate_species(adata, species)
+    # 2. 표준 심볼 판별 및 종 검증
+    is_standard = check_standard_symbols(adata, species)
+    adata.uns["is_standard_symbol"] = is_standard
+
+    if is_standard:
+        print("[CreateAdata] Validating species...")
+        validate_species(adata, species)
+
+    # 3. QC metrics 계산
     print("[CreateAdata] Calculating QC metrics...")
-    calculate_qc_metrics(adata, species)
+    calculate_qc_metrics(adata, species, is_standard=is_standard)
 
-    # 3. QC 기반 필터링
+    # 4. QC 기반 필터링
     print("[CreateAdata] Filtering cells...")
-    adata = filter_cells_qc(adata, species, min_genes, max_pct_mt, min_pct_ribo)
+    adata = filter_cells_qc(adata, species, min_genes, max_pct_mt, min_pct_ribo, is_standard=is_standard)
 
-    # 4. 불필요한 유전자 제거
+    # 5. 불필요한 유전자 제거
     print("[CreateAdata] Removing unwanted genes...")
-    adata = remove_genes(adata, species)
+    adata = remove_genes(adata, species, is_standard=is_standard)
 
-    # 5. 더블렛 제거 전 시각화
+    # 6. 더블렛 제거 전 시각화
     print("[CreateAdata] Pre-doublet visualization...")
     ad_pre = adata.copy()
     normalize_and_hvg(ad_pre, batch_key="sample")
@@ -83,7 +94,7 @@ def create_adata(
     sc.pl.umap(ad_pre, color="sample", show=False, ax=ax)
     save_figure(fig, result_path, "umap_before_doublet.png")
 
-    # 6. 더블렛 탐지 및 제거
+    # 7. 더블렛 탐지 및 제거
     print("[CreateAdata] Detecting doublets...")
     dbl_score = pd.Series(index=adata.obs_names, dtype=float)
     dbl_pred = pd.Series(index=adata.obs_names, dtype=bool)
@@ -110,7 +121,7 @@ def create_adata(
     adata = adata[adata.obs["doublet_info"] == "False", :]
     print(f"[CreateAdata] Removed {n_before - adata.n_obs} doublets")
 
-    # 7. 후처리 및 시각화
+    # 8. 후처리 및 시각화
     if perform_analysis:
         print("[CreateAdata] Post-processing...")
         normalize_and_hvg(adata, batch_key="sample")
@@ -122,17 +133,17 @@ def create_adata(
         sc.pl.umap(adata, color="sample", show=False, ax=ax)
         save_figure(fig, result_path, "umap_after_doublet.png")
 
-    # 8. 메타데이터 정리
+    # 9. 메타데이터 정리
     keep_obs = ["sample"]
     keep_var = ["gene_ids", "feature_types"]
     adata.obs = adata.obs[[c for c in adata.obs.columns if c in keep_obs]]
     adata.var = adata.var[[c for c in adata.var.columns if c in keep_var]]
-    adata.uns = {}
+    adata.uns = {"is_standard_symbol": is_standard}
     adata.obsm = {}
     adata.varm = {}
     adata.obsp = {}
 
-    # 9. 저장
+    # 10. 저장
     save_adata(adata, save_path, "scRNA_preprocessing.h5ad")
 
     print(f"[CreateAdata] Complete. Results: {result_path}")

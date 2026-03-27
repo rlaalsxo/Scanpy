@@ -90,6 +90,10 @@ def cellcell_communication(
     """
     os.makedirs(save_path, exist_ok=True)
 
+    if not adata.uns.get("is_standard_symbol", True):
+        print("[CellComm] 비표준 유전자 심볼 → Cell-Cell Communication 분석 스킵")
+        return adata
+
     if n_perms is None:
         n_perms = CELL_COMMUNICATION["n_perms"]
     if pvalue_threshold is None:

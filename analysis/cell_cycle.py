@@ -120,6 +120,10 @@ def score_cell_cycle(
     """
     os.makedirs(save_path, exist_ok=True)
 
+    if not adata.uns.get("is_standard_symbol", True):
+        print("[CellCycle] 비표준 유전자 심볼 → Cell Cycle 분석 스킵")
+        return adata
+
     # 1. Cell cycle gene set 로딩
     print("[CellCycle] Loading cell cycle genes...")
     s_genes, g2m_genes = get_cell_cycle_genes(species)

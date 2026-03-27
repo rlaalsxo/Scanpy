@@ -1,18 +1,21 @@
 """
 파일 I/O 유틸리티
 
-10x 데이터 로딩, 파일명 표준화, h5ad 저장
+10x / BD Rhapsody 데이터 로딩, 파일명 표준화, h5ad 저장
 """
 import os
 import re
 import uuid
+import glob
 import gzip
 import shutil
 import tempfile
 import tarfile
 
+import numpy as np
 import pandas as pd
 import scanpy as sc
+from scipy.sparse import csr_matrix
 
 
 def _gzip_file(src: str, dst: str):
@@ -100,6 +103,21 @@ def _fix_features_file(data_dir: str):
         shutil.move(tmp, path)
 
 
+def _extract_tar(path: str) -> str:
+    """tar/tar.gz 파일 추출 (중첩 tar 포함). 추출된 디렉토리 반환"""
+    tmp = tempfile.mkdtemp()
+    with tarfile.open(path, "r:*") as tar:
+        tar.extractall(path=tmp)
+    for f in os.listdir(tmp):
+        p = os.path.join(tmp, f)
+        if os.path.isfile(p) and tarfile.is_tarfile(p):
+            out = os.path.join(tmp, "nested_" + os.path.splitext(f)[0])
+            os.makedirs(out, exist_ok=True)
+            with tarfile.open(p, "r:*") as t:
+                t.extractall(path=out)
+    return tmp
+
+
 def _get_obs_name(style: str, sample_id: str, barcode: str) -> str:
     """obs_name 생성"""
     if style == "folder_barcode":
@@ -135,18 +153,7 @@ def load_10x_data(
     """
     # tar 파일 처리
     if parent_dir.endswith(".tar") or parent_dir.endswith(".tar.gz"):
-        tmp = tempfile.mkdtemp()
-        with tarfile.open(parent_dir, "r:*") as tar:
-            tar.extractall(path=tmp)
-        # 중첩 tar 처리
-        for f in os.listdir(tmp):
-            p = os.path.join(tmp, f)
-            if os.path.isfile(p) and tarfile.is_tarfile(p):
-                out = os.path.join(tmp, "nested_" + os.path.splitext(f)[0])
-                os.makedirs(out, exist_ok=True)
-                with tarfile.open(p, "r:*") as t:
-                    t.extractall(path=out)
-        parent_dir = tmp
+        parent_dir = _extract_tar(parent_dir)
 
     entries = os.listdir(parent_dir)
     full = [os.path.join(parent_dir, x) for x in entries]
@@ -201,6 +208,129 @@ def load_10x_data(
     else:
         adata = data_list[0]
 
+    return adata
+
+
+def _find_bd_csv(parent_dir: str) -> list:
+    """BD Rhapsody 발현 매트릭스 CSV 파일 탐색 (재귀, 압축/비압축 모두)"""
+    for ext in ["*.csv", "*.csv.gz"]:
+        pat = f"*_MolsPerCell{ext}"
+        found = glob.glob(os.path.join(parent_dir, "**", pat), recursive=True)
+        if not found:
+            found = glob.glob(os.path.join(parent_dir, pat))
+        if found:
+            return sorted(found)
+
+    raise FileNotFoundError(
+        f"BD Rhapsody CSV 파일을 찾을 수 없습니다: {parent_dir}\n"
+        "Expected: *_MolsPerCell*.csv 또는 *_MolsPerCell*.csv.gz"
+    )
+
+
+def _is_abseq_column(col: str) -> bool:
+    """AbSeq(단백질) 컬럼 여부 판별"""
+    return bool(re.search(r"[:|]", col))
+
+
+def load_bd_data(
+    parent_dir: str,
+    sample_names: list = None,
+) -> sc.AnnData:
+    """
+    BD Rhapsody 데이터 로딩
+
+    tar/tar.gz, 중첩 폴더 구조 모두 지원 (10x 로더와 동일)
+
+    Parameters
+    ----------
+    parent_dir : str
+        BD Rhapsody CSV 파일이 있는 디렉토리 또는 tar 파일 경로
+    sample_names : list, optional
+        샘플 이름 리스트
+
+    Returns
+    -------
+    AnnData
+    """
+    # tar 파일 처리
+    if parent_dir.endswith(".tar") or parent_dir.endswith(".tar.gz"):
+        parent_dir = _extract_tar(parent_dir)
+
+    csv_files = _find_bd_csv(parent_dir)
+    print(f"[IO] Found {len(csv_files)} BD CSV file(s)")
+
+    data_list = []
+    for idx, csv_path in enumerate(csv_files):
+        print(f"[IO] Loading: {os.path.basename(csv_path)}")
+        df = pd.read_csv(csv_path, index_col=0, compression="infer")
+
+        # AbSeq(단백질) 컬럼 분리
+        abseq_cols = [c for c in df.columns if _is_abseq_column(c)]
+        mrna_cols = [c for c in df.columns if not _is_abseq_column(c)]
+
+        if abseq_cols:
+            print(f"[IO] AbSeq columns detected: {len(abseq_cols)} (separated to obsm['protein'])")
+
+        mrna_df = df[mrna_cols]
+        cell_indices = mrna_df.index.astype(str)
+
+        ad = sc.AnnData(
+            X=csr_matrix(mrna_df.values.astype(np.float32)),
+            obs=pd.DataFrame(index=[f"BD_{ci}" for ci in cell_indices]),
+            var=pd.DataFrame(index=mrna_df.columns),
+        )
+        ad.var_names_make_unique()
+
+        if abseq_cols:
+            ad.obsm["protein"] = df[abseq_cols].values.astype(np.float32)
+
+        ad.obs["sample"] = sample_names[idx] if sample_names else str(idx)
+        data_list.append(ad)
+
+    # Sample Tag 처리 (재귀 탐색, 압축/비압축 모두)
+    tag_files = []
+    for ext in ["*.csv", "*.csv.gz"]:
+        tag_files = glob.glob(os.path.join(parent_dir, "**", f"*Sample_Tag_Calls{ext}"), recursive=True)
+        if not tag_files:
+            tag_files = glob.glob(os.path.join(parent_dir, f"*Sample_Tag_Calls{ext}"))
+        if tag_files:
+            break
+    if tag_files and len(data_list) == 1:
+        ad = data_list[0]
+        tags = pd.read_csv(tag_files[0], index_col=0, compression="infer")
+
+        tag_col = None
+        for col in ["Sample_Tag", "Sample_Name"]:
+            if col in tags.columns:
+                tag_col = col
+                break
+
+        if tag_col:
+            tags = tags[~tags[tag_col].isin(["Multiplet", "Undetermined"])]
+            common_idx = ad.obs.index.intersection(
+                pd.Index([f"BD_{i}" for i in tags.index.astype(str)])
+            )
+            if len(common_idx) > 0:
+                ad = ad[common_idx].copy()
+                tag_map = {f"BD_{str(i)}": t for i, t in zip(tags.index, tags[tag_col])}
+                ad.obs["sample"] = [tag_map[ci] for ci in ad.obs_names]
+                n_removed = data_list[0].n_obs - ad.n_obs
+                if n_removed > 0:
+                    print(f"[IO] Removed {n_removed} Multiplet/Undetermined cells")
+
+                # Sample Tag 기반 obs_names 재생성
+                ad.obs_names = [
+                    f"{sample}_{ci.split('_', 1)[1]}"
+                    for ci, sample in zip(ad.obs_names, ad.obs["sample"])
+                ]
+                data_list = [ad]
+
+    if len(data_list) > 1:
+        adata = data_list[0].concatenate(*data_list[1:], batch_key="batch")
+    else:
+        adata = data_list[0]
+
+    print(f"[IO] BD data loaded: {adata.n_obs} cells x {adata.n_vars} genes")
     return adata
 
 

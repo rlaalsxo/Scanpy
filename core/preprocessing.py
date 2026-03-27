@@ -10,7 +10,34 @@ from config.defaults import HVG
 from config.species import get_species_config
 
 
-def validate_species(adata, species: str):
+def check_standard_symbols(adata, species: str) -> bool:
+    """표준 유전자 심볼 여부 판별 (MT/Ribo prefix 존재 여부)"""
+    config = get_species_config(species)
+    mt_count = int(adata.var_names.str.startswith(config["mt_prefix"]).sum())
+    ribo_count = int(adata.var_names.str.startswith(config["ribo_prefix"]).sum())
+
+    if mt_count > 0 or ribo_count > 0:
+        return True
+
+    other = "human" if species == "mouse" else "mouse"
+    other_config = get_species_config(other)
+    other_mt = int(adata.var_names.str.startswith(other_config["mt_prefix"]).sum())
+    other_ribo = int(adata.var_names.str.startswith(other_config["ribo_prefix"]).sum())
+
+    if other_mt > 0 or other_ribo > 0:
+        return True
+
+    print(
+        f"[WARNING] 표준 유전자 심볼이 감지되지 않았습니다.\n"
+        f"  {species}: MT={mt_count}, Ribo={ribo_count}\n"
+        f"  {other}: MT={other_mt}, Ribo={other_ribo}\n"
+        f"  → 유전자명 의존 QC (MT%, Ribo%, HB 필터링, 유전자 제거)를 스킵합니다."
+    )
+    return False
+
+
+def validate_species(adata, species: str) -> bool:
+    """종 검증. 표준 심볼이면 True, 비표준이면 False 반환"""
     config = get_species_config(species)
     mt_count = int(adata.var_names.str.startswith(config["mt_prefix"]).sum())
     ribo_count = int(adata.var_names.str.startswith(config["ribo_prefix"]).sum())
@@ -30,29 +57,37 @@ def validate_species(adata, species: str):
                 f"Please change species to '{other}'."
             )
 
+        return False
 
-def calculate_qc_metrics(adata, species: str):
+    return True
+
+
+def calculate_qc_metrics(adata, species: str, is_standard: bool = True):
     """
-    QC metrics 계산 (mt, ribo, hb)
+    QC metrics 계산
 
-    Parameters
-    ----------
-    adata : AnnData
-    species : str
+    is_standard=False면 기본 metric만 계산 (n_genes_by_counts, total_counts)
     """
-    config = get_species_config(species)
-
-    adata.var["mt"] = adata.var_names.str.startswith(config["mt_prefix"])
-    adata.var["ribo"] = adata.var_names.str.startswith(config["ribo_prefix"])
-    adata.var["hb"] = adata.var_names.str.contains(config["hb_pattern"])
-
-    sc.pp.calculate_qc_metrics(
-        adata,
-        qc_vars=["mt", "ribo", "hb"],
-        log1p=True,
-        percent_top=None,
-        inplace=True,
-    )
+    if is_standard:
+        config = get_species_config(species)
+        adata.var["mt"] = adata.var_names.str.startswith(config["mt_prefix"])
+        adata.var["ribo"] = adata.var_names.str.startswith(config["ribo_prefix"])
+        adata.var["hb"] = adata.var_names.str.contains(config["hb_pattern"])
+        sc.pp.calculate_qc_metrics(
+            adata,
+            qc_vars=["mt", "ribo", "hb"],
+            log1p=True,
+            percent_top=None,
+            inplace=True,
+        )
+    else:
+        print("[QC] 비표준 심볼 → 기본 metric만 계산 (MT/Ribo/HB 스킵)")
+        sc.pp.calculate_qc_metrics(
+            adata,
+            log1p=True,
+            percent_top=None,
+            inplace=True,
+        )
 
 
 def filter_cells_qc(
@@ -61,33 +96,18 @@ def filter_cells_qc(
     min_genes: int = None,
     max_pct_mt: float = None,
     min_pct_ribo: float = None,
+    is_standard: bool = True,
 ):
     """
     QC 기반 세포 필터링
 
-    Parameters
-    ----------
-    adata : AnnData
-    species : str
-    min_genes : int, optional
-    max_pct_mt : float, optional
-    min_pct_ribo : float, optional
-
-    Returns
-    -------
-    AnnData (필터링된)
+    is_standard=False면 min_genes 필터링만 수행
     """
     config = get_species_config(species)
     qc = config["qc"]
 
     if min_genes is None:
         min_genes = qc["min_genes"]
-    if max_pct_mt is None:
-        max_pct_mt = qc["max_pct_mt"]
-    if min_pct_ribo is None:
-        min_pct_ribo = qc["min_pct_ribo"]
-
-    print(f"[QC] min_genes={min_genes}, max_pct_mt={max_pct_mt}, min_pct_ribo={min_pct_ribo}")
 
     n_total = adata.n_obs
 
@@ -95,6 +115,17 @@ def filter_cells_qc(
     n_after_genes = adata.n_obs
 
     sc.pp.filter_genes(adata, min_cells=3)
+
+    if not is_standard:
+        print(f"[QC] 비표준 심볼 → min_genes={min_genes} 필터링만 수행 ({n_total} → {n_after_genes} cells)")
+        return adata
+
+    if max_pct_mt is None:
+        max_pct_mt = qc["max_pct_mt"]
+    if min_pct_ribo is None:
+        min_pct_ribo = qc["min_pct_ribo"]
+
+    print(f"[QC] min_genes={min_genes}, max_pct_mt={max_pct_mt}, min_pct_ribo={min_pct_ribo}")
 
     adata = adata[adata.obs["pct_counts_mt"] < max_pct_mt, :]
     n_after_mt = adata.n_obs
@@ -115,19 +146,17 @@ def filter_cells_qc(
     return adata
 
 
-def remove_genes(adata, species: str):
+def remove_genes(adata, species: str, is_standard: bool = True):
     """
     MALAT1, mt, hb 유전자 제거
 
-    Parameters
-    ----------
-    adata : AnnData
-    species : str
-
-    Returns
-    -------
-    AnnData
+    is_standard=False면 제거 스킵
     """
+    if not is_standard:
+        print("[Preprocessing] 비표준 심볼 → 유전자 제거 스킵")
+        sc.pp.filter_genes(adata, min_cells=3)
+        return adata
+
     config = get_species_config(species)
 
     malat = adata.var_names.str.startswith(config["malat"])

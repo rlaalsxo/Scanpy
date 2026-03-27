@@ -41,6 +41,10 @@ def gsea_enrichment(
     """
     os.makedirs(save_path, exist_ok=True)
 
+    if not adata.uns.get("is_standard_symbol", True):
+        print("[GSEA] 비표준 유전자 심볼 → GSEA Enrichment 분석 스킵")
+        return adata
+
     if padj_threshold is None:
         padj_threshold = GSEA["padj_threshold"]
     if top_n_pathways is None:

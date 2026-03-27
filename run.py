@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--input_dir", required=True, help="입력 디렉토리")
     parser.add_argument("--output_dir", required=True, help="결과 저장 디렉토리")
     parser.add_argument("--species", required=True, choices=["human", "mouse"], help="종 선택")
+    parser.add_argument("--platform", default="10x", choices=["10x", "bd"], help="시퀀싱 플랫폼 (10x 또는 bd)")
 
     # 선택 인자
     parser.add_argument("--output_filename", default="adata_final.h5ad", help="최종 저장 파일 이름")
@@ -67,6 +68,7 @@ def main():
         parent_dir=args.input_dir,
         save_path=save_path,
         species=args.species,
+        platform=args.platform,
     )
 
     # =========================================================================

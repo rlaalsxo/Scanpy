@@ -46,23 +46,27 @@ def deg_analysis(
         padj_threshold = DEG["padj_threshold"]
 
     config = get_species_config(species)
+    is_standard = adata.uns.get("is_standard_symbol", True)
 
     # 1. 성염색체 유전자 제거
-    print("[DEG] Removing sex chromosome genes...")
-    try:
-        annot = sc.queries.biomart_annotations(
-            config["biomart_org"],
-            ["ensembl_gene_id", "external_gene_name", "chromosome_name"]
-        ).set_index("external_gene_name")
+    if is_standard:
+        print("[DEG] Removing sex chromosome genes...")
+        try:
+            annot = sc.queries.biomart_annotations(
+                config["biomart_org"],
+                ["ensembl_gene_id", "external_gene_name", "chromosome_name"]
+            ).set_index("external_gene_name")
 
-        chrY = adata.var_names.intersection(annot.index[annot.chromosome_name == "Y"])
-        chrX = adata.var_names.intersection(annot.index[annot.chromosome_name == "X"])
-        sex_genes = chrY.union(chrX)
-        adata = adata[:, [g for g in adata.var_names if g not in sex_genes]]
-        print(f"[DEG] Removed {len(sex_genes)} sex chromosome genes.")
-    except Exception as e:
-        print(f"[DEG] Warning: BioMart error: {e}")
-        print("[DEG] Skipping sex chromosome gene removal.")
+            chrY = adata.var_names.intersection(annot.index[annot.chromosome_name == "Y"])
+            chrX = adata.var_names.intersection(annot.index[annot.chromosome_name == "X"])
+            sex_genes = chrY.union(chrX)
+            adata = adata[:, [g for g in adata.var_names if g not in sex_genes]]
+            print(f"[DEG] Removed {len(sex_genes)} sex chromosome genes.")
+        except Exception as e:
+            print(f"[DEG] Warning: BioMart error: {e}")
+            print("[DEG] Skipping sex chromosome gene removal.")
+    else:
+        print("[DEG] 비표준 심볼 → 성염색체 유전자 제거 스킵")
 
     # 2. DEG 분석
     print("[DEG] Running DEG analysis...")
@@ -87,6 +91,11 @@ def deg_analysis(
     n_clusters = adata.obs[groupby].nunique()
 
     # 3. Enrichr로 cell type 예측
+    if not is_standard:
+        print("[DEG] 비표준 심볼 → Cell type prediction 스킵")
+        print(f"[DEG] Complete. Results: {save_path}")
+        return adata
+
     print("[DEG] Predicting cell types via Enrichr...")
     sc.tl.rank_genes_groups(adata, groupby=groupby, method="wilcoxon", key_added="gsea_wilcoxon")
     pred = {}
