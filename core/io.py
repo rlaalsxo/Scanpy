@@ -119,7 +119,7 @@ def load_10x_data(
         # 중첩 tar 처리
         for f in os.listdir(tmp):
             p = os.path.join(tmp, f)
-            if tarfile.is_tarfile(p):
+            if os.path.isfile(p) and tarfile.is_tarfile(p):
                 out = os.path.join(tmp, "nested_" + os.path.splitext(f)[0])
                 os.makedirs(out, exist_ok=True)
                 with tarfile.open(p, "r:*") as t:
@@ -140,17 +140,25 @@ def load_10x_data(
             if m:
                 samp.setdefault(m.group(1), []).append(f)
 
-        tmp = tempfile.mkdtemp()
-        for idx, (sid, files) in enumerate(samp.items()):
-            path = os.path.join(tmp, sid)
-            os.makedirs(path, exist_ok=True)
-            for f in files:
-                shutil.copy(os.path.join(parent_dir, f), os.path.join(path, f))
+        if samp:
+            tmp = tempfile.mkdtemp()
+            for idx, (sid, files) in enumerate(samp.items()):
+                path = os.path.join(tmp, sid)
+                os.makedirs(path, exist_ok=True)
+                for f in files:
+                    shutil.copy(os.path.join(parent_dir, f), os.path.join(path, f))
 
-            standardize_filenames(path)
-            ad = sc.read_10x_mtx(path, var_names="gene_symbols")
+                standardize_filenames(path)
+                ad = sc.read_10x_mtx(path, var_names="gene_symbols")
+                ad.obs_names = [_get_obs_name(obs_name_style, sid, bc) for bc in ad.obs_names]
+                ad.obs["sample"] = sample_names[idx] if sample_names else str(idx)
+                data_list.append(ad)
+        else:
+            standardize_filenames(parent_dir)
+            ad = sc.read_10x_mtx(parent_dir, var_names="gene_symbols")
+            sid = os.path.basename(parent_dir.rstrip("/"))
             ad.obs_names = [_get_obs_name(obs_name_style, sid, bc) for bc in ad.obs_names]
-            ad.obs["sample"] = sample_names[idx] if sample_names else str(idx)
+            ad.obs["sample"] = sample_names[0] if sample_names else "0"
             data_list.append(ad)
     else:
         # 폴더 구조
