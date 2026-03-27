@@ -227,6 +227,21 @@ def _find_bd_csv(parent_dir: str) -> list:
     )
 
 
+def _detect_bd_csv_params(csv_path: str) -> tuple:
+    """BD CSV 메타데이터 헤더 행 수 + 구분자 자동 감지"""
+    opener = gzip.open if csv_path.endswith(".gz") else open
+    skip = 0
+    sep = ","
+    with opener(csv_path, "rt") as f:
+        for line in f:
+            if line.startswith("#"):
+                skip += 1
+            else:
+                sep = "\t" if "\t" in line else ","
+                break
+    return skip, sep
+
+
 def _is_abseq_column(col: str) -> bool:
     """AbSeq(단백질) 컬럼 여부 판별"""
     return bool(re.search(r"[:|]", col))
@@ -262,7 +277,10 @@ def load_bd_data(
     data_list = []
     for idx, csv_path in enumerate(csv_files):
         print(f"[IO] Loading: {os.path.basename(csv_path)}")
-        df = pd.read_csv(csv_path, index_col=0, compression="infer")
+        skip, sep = _detect_bd_csv_params(csv_path)
+        if skip > 0:
+            print(f"[IO] Skipping {skip} metadata header lines")
+        df = pd.read_csv(csv_path, index_col=0, compression="infer", skiprows=skip, sep=sep)
 
         # AbSeq(단백질) 컬럼 분리
         abseq_cols = [c for c in df.columns if _is_abseq_column(c)]
