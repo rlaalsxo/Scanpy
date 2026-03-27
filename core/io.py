@@ -15,11 +15,18 @@ import pandas as pd
 import scanpy as sc
 
 
+def _gzip_file(src: str, dst: str):
+    with open(src, 'rb') as f_in:
+        with gzip.open(dst, 'wb') as f_out:
+            shutil.copyfileobj(f_in, f_out)
+
+
 def standardize_filenames(data_dir: str):
     """
     10x 파일명 표준화
 
     다양한 파일명 형식을 scanpy가 인식하는 형식으로 변환
+    비압축 파일(.tsv, .mtx)은 .gz로 압축
     """
     files = os.listdir(data_dir)
 
@@ -29,6 +36,10 @@ def standardize_filenames(data_dir: str):
         cands = [f for f in files if "barcodes.tsv.gz" in f]
         if cands:
             shutil.copy(os.path.join(data_dir, cands[0]), bc)
+        else:
+            cands = [f for f in files if "barcodes.tsv" in f and not f.endswith(".gz")]
+            if cands:
+                _gzip_file(os.path.join(data_dir, cands[0]), bc)
 
     # features.tsv.gz / genes.tsv.gz
     feats = os.path.join(data_dir, "features.tsv.gz")
@@ -38,13 +49,24 @@ def standardize_filenames(data_dir: str):
         cands = [f for f in files if "genes.tsv.gz" in f]
         if cands:
             shutil.copy(os.path.join(data_dir, cands[0]), genes)
+        else:
+            cands = [f for f in files if "genes.tsv" in f and not f.endswith(".gz")]
+            if cands:
+                _gzip_file(os.path.join(data_dir, cands[0]), genes)
 
     if not os.path.exists(feats):
         cands = [f for f in files if "features.tsv.gz" in f]
         if cands:
             shutil.copy(os.path.join(data_dir, cands[0]), feats)
-        elif os.path.exists(genes):
-            shutil.copy(genes, feats)
+        else:
+            cands = [f for f in files if "features.tsv" in f and not f.endswith(".gz")]
+            if cands:
+                _gzip_file(os.path.join(data_dir, cands[0]), feats)
+            elif os.path.exists(genes):
+                shutil.copy(genes, feats)
+
+    if not os.path.exists(feats) and os.path.exists(genes):
+        shutil.copy(genes, feats)
 
     # features.tsv.gz 컬럼 수정 (2열 -> 3열)
     _fix_features_file(data_dir)
@@ -58,7 +80,7 @@ def standardize_filenames(data_dir: str):
             if cands[0].endswith(".gz"):
                 shutil.copy(src, mtx)
             else:
-                shutil.copy(src, os.path.join(data_dir, "matrix.mtx"))
+                _gzip_file(src, mtx)
 
 
 def _fix_features_file(data_dir: str):
