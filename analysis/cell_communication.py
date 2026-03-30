@@ -4,6 +4,7 @@ Cell-Cell Communication 분석
 Squidpy 기반 Ligand-Receptor 분석
 """
 import os
+import re
 
 import numpy as np
 import pandas as pd
@@ -14,6 +15,68 @@ import matplotlib.pyplot as plt
 from config.defaults import CELL_COMMUNICATION
 from core.neighbors import detect_cluster_key
 from plotting.utils import save_figure
+
+
+def _truncate_name(name: str, max_len: int = 30) -> str:
+    """셀 타입명에서 ontology ID 제거 + 길이 제한"""
+    name = re.sub(r"\s*(CL|UBERON|EFO):\S+", "", str(name)).strip()
+    return name[:max_len] + "..." if len(name) > max_len else name
+
+
+def _plot_ligrec_dotplot(sig_df, save_path: str, top_n: int = 50, filename: str = "ligrec_dotplot.png"):
+    """상위 N개 L-R 상호작용 커스텀 dotplot"""
+    top = sig_df.nsmallest(top_n, "pvalue").copy()
+    top["lr_pair"] = top["ligand"] + " → " + top["receptor"]
+    top["cell_pair"] = top["source"].apply(_truncate_name) + " → " + top["target"].apply(_truncate_name)
+
+    lr_pairs = top["lr_pair"].unique()
+    cell_pairs = top["cell_pair"].unique()
+
+    if len(lr_pairs) == 0 or len(cell_pairs) == 0:
+        return
+
+    lr_to_idx = {lr: i for i, lr in enumerate(lr_pairs)}
+    cp_to_idx = {cp: i for i, cp in enumerate(cell_pairs)}
+
+    fig_w = max(10, len(cell_pairs) * 0.8 + 3)
+    fig_h = max(6, len(lr_pairs) * 0.25 + 2)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+
+    neg_log_p = -np.log10(top["pvalue"].clip(lower=1e-300))
+    mean_vals = top["mean_expression"]
+    size_min, size_max = 20, 300
+    if mean_vals.max() > mean_vals.min():
+        sizes = size_min + (mean_vals - mean_vals.min()) / (mean_vals.max() - mean_vals.min()) * (size_max - size_min)
+    else:
+        sizes = (size_min + size_max) / 2
+
+    sc_plot = ax.scatter(
+        [cp_to_idx[cp] for cp in top["cell_pair"]],
+        [lr_to_idx[lr] for lr in top["lr_pair"]],
+        s=sizes,
+        c=neg_log_p,
+        cmap="viridis",
+        edgecolors="black",
+        linewidths=0.3,
+        alpha=0.85,
+    )
+
+    ax.set_xticks(range(len(cell_pairs)))
+    ax.set_xticklabels(cell_pairs, rotation=45, ha="right", fontsize=7)
+    ax.set_yticks(range(len(lr_pairs)))
+    ax.set_yticklabels(lr_pairs, fontsize=7)
+    ax.set_xlabel("Cell Type Pair (Source → Target)")
+    ax.set_title(f"Top {len(top)} Ligand-Receptor Interactions")
+
+    cbar = plt.colorbar(sc_plot, ax=ax, label="-log10(p-value)", shrink=0.6)
+    cbar.ax.tick_params(labelsize=7)
+
+    # 사이즈 범례
+    for s_val, s_label in [(size_min, "Low"), (size_max, "High")]:
+        ax.scatter([], [], s=s_val, c="gray", edgecolors="black", linewidths=0.3, label=f"Expr: {s_label}")
+    ax.legend(loc="upper left", bbox_to_anchor=(1.15, 0.3), fontsize=7, frameon=False)
+
+    save_figure(fig, save_path, filename)
 
 
 def _plot_interaction_network(interaction_counts, save_path: str):
@@ -171,30 +234,35 @@ def cellcell_communication(
     print(f"[CellComm] Found {len(sig_df)} significant interactions")
 
     # 4. 시각화
-    # 4-1. Dotplot
+    # 4-1. 커스텀 Dotplot (상위 N개, 가독성 최적화)
     print("[CellComm] Generating dotplot...")
+    _plot_ligrec_dotplot(sig_df, save_path, top_n=top_n_interactions)
+
+    # 4-1b. sq.pl.ligrec 원본 (전체, 레퍼런스용)
     try:
         fig_height = max(8, min(top_n_interactions * 0.3, 20))
         fig_width = max(10, n_groups * 1.5)
         sq.pl.ligrec(adata, cluster_key=groupby, pvalue_threshold=pvalue_threshold,
                      remove_empty_interactions=True, show=False, figsize=(fig_width, fig_height))
         plt.tight_layout()
-        plt.savefig(os.path.join(save_path, "ligrec_dotplot.png"), dpi=300, bbox_inches="tight")
+        plt.savefig(os.path.join(save_path, "ligrec_dotplot_full.png"), dpi=300, bbox_inches="tight")
         plt.close()
     except Exception as e:
-        print(f"[CellComm] Dotplot failed: {e}")
+        print(f"[CellComm] Full dotplot failed: {e}")
 
     # 4-2. 상호작용 히트맵
     print("[CellComm] Generating interaction heatmap...")
     interaction_counts = sig_df.groupby(["source", "target"]).size().unstack(fill_value=0)
 
     if not interaction_counts.empty:
+        trunc_cols = [_truncate_name(c) for c in interaction_counts.columns]
+        trunc_idx = [_truncate_name(i) for i in interaction_counts.index]
         fig, ax = plt.subplots(figsize=(max(8, n_groups * 0.8), max(6, n_groups * 0.6)))
         im = ax.imshow(interaction_counts.values, cmap="Reds", aspect="auto")
-        ax.set_xticks(range(len(interaction_counts.columns)))
-        ax.set_yticks(range(len(interaction_counts.index)))
-        ax.set_xticklabels(interaction_counts.columns, rotation=45, ha="right")
-        ax.set_yticklabels(interaction_counts.index)
+        ax.set_xticks(range(len(trunc_cols)))
+        ax.set_yticks(range(len(trunc_idx)))
+        ax.set_xticklabels(trunc_cols, rotation=45, ha="right", fontsize=8)
+        ax.set_yticklabels(trunc_idx, fontsize=8)
         ax.set_xlabel("Target")
         ax.set_ylabel("Source")
         ax.set_title("Number of Significant L-R Interactions")
