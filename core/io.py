@@ -85,6 +85,9 @@ def standardize_filenames(data_dir: str):
             else:
                 _gzip_file(src, mtx)
 
+    # BD Rhapsody MTX: 정수 바코드 → 문자열 변환
+    _fix_integer_barcodes(data_dir)
+
 
 def _fix_features_file(data_dir: str):
     """features.tsv.gz가 2열이면 3열로 수정"""
@@ -101,6 +104,22 @@ def _fix_features_file(data_dir: str):
         df.to_csv(tmp, sep='\t', header=False, index=False, compression="gzip")
         shutil.move(path, path + ".bak")
         shutil.move(tmp, path)
+
+
+def _fix_integer_barcodes(data_dir: str):
+    """BD MTX의 정수 바코드를 문자열로 변환 (sc.read_10x_mtx 호환)"""
+    bc_path = os.path.join(data_dir, "barcodes.tsv.gz")
+    if not os.path.exists(bc_path):
+        return
+
+    with gzip.open(bc_path, 'rt') as f:
+        barcodes = f.read().strip().split('\n')
+
+    if barcodes and barcodes[0].strip().isdigit():
+        with gzip.open(bc_path, 'wt') as f:
+            for bc in barcodes:
+                f.write(f"cell_{bc.strip()}\n")
+        print(f"[IO] Converted {len(barcodes)} integer barcodes to string format")
 
 
 def _extract_tar(path: str) -> str:
@@ -220,11 +239,17 @@ def _find_bd_csv(parent_dir: str) -> list:
             found = glob.glob(os.path.join(parent_dir, pat))
         if found:
             return sorted(found)
+    return []
 
-    raise FileNotFoundError(
-        f"BD Rhapsody CSV 파일을 찾을 수 없습니다: {parent_dir}\n"
-        "Expected: *_MolsPerCell*.csv 또는 *_MolsPerCell*.csv.gz"
-    )
+
+def _has_mtx_files(directory: str) -> bool:
+    """디렉토리에 MTX 형식 파일이 있는지 확인 (재귀)"""
+    for pat in ["*matrix.mtx*", "*barcodes.tsv*", "*features.tsv*", "*genes.tsv*"]:
+        if glob.glob(os.path.join(directory, "**", pat), recursive=True):
+            return True
+        if glob.glob(os.path.join(directory, pat)):
+            return True
+    return False
 
 
 def _detect_bd_csv_params(csv_path: str) -> tuple:
@@ -272,6 +297,16 @@ def load_bd_data(
         parent_dir = _extract_tar(parent_dir)
 
     csv_files = _find_bd_csv(parent_dir)
+
+    if not csv_files:
+        if _has_mtx_files(parent_dir):
+            print("[IO] BD CSV not found, falling back to MTX format")
+            return load_10x_data(parent_dir, sample_names)
+        raise FileNotFoundError(
+            f"BD Rhapsody 데이터를 찾을 수 없습니다: {parent_dir}\n"
+            "Expected: *_MolsPerCell*.csv(.gz) 또는 MTX 파일 (barcodes.tsv.gz, features.tsv.gz, matrix.mtx.gz)"
+        )
+
     print(f"[IO] Found {len(csv_files)} BD CSV file(s)")
 
     data_list = []
