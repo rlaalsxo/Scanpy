@@ -5,6 +5,7 @@ Squidpy 기반 Ligand-Receptor 분석
 """
 import os
 import re
+from math import ceil
 
 import numpy as np
 import pandas as pd
@@ -234,21 +235,15 @@ def cellcell_communication(
     print(f"[CellComm] Found {len(sig_df)} significant interactions")
 
     # 4. 시각화
-    # 4-1. 커스텀 Dotplot (상위 N개, 가독성 최적화)
-    print("[CellComm] Generating dotplot...")
-    _plot_ligrec_dotplot(sig_df, save_path, top_n=top_n_interactions)
-
-    # 4-1b. sq.pl.ligrec 원본 (전체, 레퍼런스용)
-    try:
-        fig_height = max(8, min(top_n_interactions * 0.3, 20))
-        fig_width = max(10, n_groups * 1.5)
-        sq.pl.ligrec(adata, cluster_key=groupby, pvalue_threshold=pvalue_threshold,
-                     remove_empty_interactions=True, show=False, figsize=(fig_width, fig_height))
-        plt.tight_layout()
-        plt.savefig(os.path.join(save_path, "ligrec_dotplot_full.png"), dpi=300, bbox_inches="tight")
-        plt.close()
-    except Exception as e:
-        print(f"[CellComm] Full dotplot failed: {e}")
+    # 4-1. 커스텀 Dotplot (페이지 분할)
+    print("[CellComm] Generating dotplots...")
+    sorted_df = sig_df.sort_values("pvalue")
+    n_pages = ceil(len(sorted_df) / top_n_interactions)
+    for page in range(n_pages):
+        chunk = sorted_df.iloc[page * top_n_interactions : (page + 1) * top_n_interactions]
+        filename = f"ligrec_dotplot_{page + 1}.png"
+        _plot_ligrec_dotplot(chunk, save_path, top_n=len(chunk), filename=filename)
+    print(f"[CellComm] Generated {n_pages} dotplot page(s)")
 
     # 4-2. 상호작용 히트맵
     print("[CellComm] Generating interaction heatmap...")
