@@ -11,6 +11,7 @@ import gzip
 import shutil
 import tempfile
 import tarfile
+import zipfile
 
 import numpy as np
 import pandas as pd
@@ -135,6 +136,29 @@ def _extract_tar(path: str) -> str:
             with tarfile.open(p, "r:*") as t:
                 t.extractall(path=out)
     return tmp
+
+
+def _extract_zip(path: str, dest: str = None) -> str:
+    """zip 파일 추출 (중첩 zip 포함, 같은 위치에 평탄화). 추출된 디렉토리 반환"""
+    dest = dest or tempfile.mkdtemp()
+    with zipfile.ZipFile(path) as zf:
+        zf.extractall(path=dest)
+    for f in os.listdir(dest):
+        p = os.path.join(dest, f)
+        if os.path.isfile(p) and zipfile.is_zipfile(p):
+            _extract_zip(p, dest)
+    return dest
+
+
+def _find_main_bd_zip(root: str) -> str:
+    """BD Rhapsody Seven Bridges 번들에서 메인(filtered) RSEC_MolsPerCell_MEX.zip 하나를 선택
+
+    Unfiltered / Multiplet_and_Undetermined / SampleTagNN_mm 서브셋 zip은 제외한다.
+    """
+    candidates = glob.glob(os.path.join(root, "**", "*RSEC_MolsPerCell_MEX.zip"), recursive=True)
+    exclude = ("unfiltered", "multiplet", "undetermined", "sampletag")
+    main = [c for c in candidates if not any(x in os.path.basename(c).lower() for x in exclude)]
+    return main[0] if main else None
 
 
 def _get_obs_name(style: str, sample_id: str, barcode: str) -> str:
@@ -272,6 +296,57 @@ def _is_abseq_column(col: str) -> bool:
     return bool(re.search(r"[:|]", col))
 
 
+def _apply_sample_tag_filter(adata: sc.AnnData, parent_dir: str, cell_index_prefix: str) -> sc.AnnData:
+    """Sample_Tag_Calls.csv를 찾아 샘플별 라벨링 + Multiplet/Undetermined 제거를 적용
+
+    adata.obs_names는 f"{cell_index_prefix}{cell_index}" 형식이어야 한다.
+    Sample_Tag_Calls.csv가 없거나 매칭되는 세포가 없으면 adata를 그대로 반환한다.
+    """
+    tag_files = []
+    for ext in ["*.csv", "*.csv.gz"]:
+        tag_files = glob.glob(os.path.join(parent_dir, "**", f"*Sample_Tag_Calls{ext}"), recursive=True)
+        if not tag_files:
+            tag_files = glob.glob(os.path.join(parent_dir, f"*Sample_Tag_Calls{ext}"))
+        if tag_files:
+            break
+
+    if not tag_files:
+        return adata
+
+    skip, sep = _detect_bd_csv_params(tag_files[0])
+    tags = pd.read_csv(tag_files[0], index_col=0, compression="infer", skiprows=skip, sep=sep)
+
+    tag_col = None
+    for col in ["Sample_Tag", "Sample_Name"]:
+        if col in tags.columns:
+            tag_col = col
+            break
+
+    if not tag_col:
+        return adata
+
+    tags = tags[~tags[tag_col].isin(["Multiplet", "Undetermined"])]
+    common_idx = adata.obs.index.intersection(
+        pd.Index([f"{cell_index_prefix}{i}" for i in tags.index.astype(str)])
+    )
+    if len(common_idx) == 0:
+        return adata
+
+    filtered = adata[common_idx].copy()
+    tag_map = {f"{cell_index_prefix}{str(i)}": t for i, t in zip(tags.index, tags[tag_col])}
+    filtered.obs["sample"] = [tag_map[ci] for ci in filtered.obs_names]
+    n_removed = adata.n_obs - filtered.n_obs
+    if n_removed > 0:
+        print(f"[IO] Removed {n_removed} Multiplet/Undetermined cells")
+
+    # Sample Tag 기반 obs_names 재생성
+    filtered.obs_names = [
+        f"{sample}_{ci[len(cell_index_prefix):]}"
+        for ci, sample in zip(filtered.obs_names, filtered.obs["sample"])
+    ]
+    return filtered
+
+
 def load_bd_data(
     parent_dir: str,
     sample_names: list = None,
@@ -299,6 +374,17 @@ def load_bd_data(
     csv_files = _find_bd_csv(parent_dir)
 
     if not csv_files:
+        main_zip = _find_main_bd_zip(parent_dir)
+        if main_zip:
+            print(f"[IO] BD CSV not found, extracting Seven Bridges bundle: {os.path.basename(main_zip)}")
+            mex_dir = _extract_zip(main_zip)
+            standardize_filenames(mex_dir)
+            adata = sc.read_10x_mtx(mex_dir, var_names="gene_symbols")
+            adata.var_names_make_unique()
+            adata.obs["sample"] = sample_names[0] if sample_names else "0"
+            adata = _apply_sample_tag_filter(adata, parent_dir, cell_index_prefix="cell_")
+            print(f"[IO] BD data loaded: {adata.n_obs} cells x {adata.n_vars} genes")
+            return adata
         if _has_mtx_files(parent_dir):
             print("[IO] BD CSV not found, falling back to MTX format")
             return load_10x_data(parent_dir, sample_names)
@@ -340,43 +426,9 @@ def load_bd_data(
         ad.obs["sample"] = sample_names[idx] if sample_names else str(idx)
         data_list.append(ad)
 
-    # Sample Tag 처리 (재귀 탐색, 압축/비압축 모두)
-    tag_files = []
-    for ext in ["*.csv", "*.csv.gz"]:
-        tag_files = glob.glob(os.path.join(parent_dir, "**", f"*Sample_Tag_Calls{ext}"), recursive=True)
-        if not tag_files:
-            tag_files = glob.glob(os.path.join(parent_dir, f"*Sample_Tag_Calls{ext}"))
-        if tag_files:
-            break
-    if tag_files and len(data_list) == 1:
-        ad = data_list[0]
-        tags = pd.read_csv(tag_files[0], index_col=0, compression="infer")
-
-        tag_col = None
-        for col in ["Sample_Tag", "Sample_Name"]:
-            if col in tags.columns:
-                tag_col = col
-                break
-
-        if tag_col:
-            tags = tags[~tags[tag_col].isin(["Multiplet", "Undetermined"])]
-            common_idx = ad.obs.index.intersection(
-                pd.Index([f"BD_{i}" for i in tags.index.astype(str)])
-            )
-            if len(common_idx) > 0:
-                ad = ad[common_idx].copy()
-                tag_map = {f"BD_{str(i)}": t for i, t in zip(tags.index, tags[tag_col])}
-                ad.obs["sample"] = [tag_map[ci] for ci in ad.obs_names]
-                n_removed = data_list[0].n_obs - ad.n_obs
-                if n_removed > 0:
-                    print(f"[IO] Removed {n_removed} Multiplet/Undetermined cells")
-
-                # Sample Tag 기반 obs_names 재생성
-                ad.obs_names = [
-                    f"{sample}_{ci.split('_', 1)[1]}"
-                    for ci, sample in zip(ad.obs_names, ad.obs["sample"])
-                ]
-                data_list = [ad]
+    # Sample Tag 처리 (단일 CSV 매트릭스인 경우에만 적용)
+    if len(data_list) == 1:
+        data_list = [_apply_sample_tag_filter(data_list[0], parent_dir, cell_index_prefix="BD_")]
 
     if len(data_list) > 1:
         adata = data_list[0].concatenate(*data_list[1:], batch_key="batch")
